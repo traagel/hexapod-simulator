@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Hexapod</title>
+    <style>
+      body { margin: 0; background: #111; color: #ddd; font-family: monospace; }
+      #info { position: absolute; top: 8px; left: 8px; padding: 8px 10px;
+              background: rgba(0,0,0,0.5); border-radius: 4px; font-size: 12px; }
+      #help { position: absolute; bottom: 8px; left: 8px; padding: 8px 10px;
+              background: rgba(0,0,0,0.5); border-radius: 4px; font-size: 11px; }
+      #panel { position: absolute; top: 8px; right: 8px; padding: 10px 12px;
+               background: rgba(0,0,0,0.6); border-radius: 4px; font-size: 12px;
+               display: grid; grid-template-columns: auto 160px auto; gap: 6px 10px;
+               align-items: center; }
+      #panel input[type=range] { width: 160px; }
+      #panel .v { font-variant-numeric: tabular-nums; min-width: 32px; text-align: right; }
+      kbd { background: #333; padding: 1px 5px; border-radius: 3px; }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div id="info">connecting…</div>
+    <div id="panel">
+      <label>height</label>
+      <input id="height"  type="range" min="2"   max="12" step="0.5" value="5"  />
+      <span class="v" id="height-v">5</span>
+      <label>step</label>
+      <input id="step"    type="range" min="0.5" max="14" step="0.5" value="4"  />
+      <span class="v" id="step-v">4</span>
+      <label>radius</label>
+      <input id="radius"  type="range" min="6"   max="14" step="0.5" value="9.8"/>
+      <span class="v" id="radius-v">9.8</span>
+    </div>
+    <div id="help">
+      <kbd>W</kbd>/<kbd>S</kbd> forward/back &nbsp;
+      <kbd>A</kbd>/<kbd>D</kbd> strafe &nbsp;
+      <kbd>Q</kbd>/<kbd>E</kbd> turn &nbsp;
+      <kbd>space</kbd> stop &nbsp;
+      mouse drag to orbit
+    </div>
+
+    <script type="module">
+      import * as THREE from "three";
+      import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+      const info = document.getElementById("info");
+
+      // ─── three.js scene ────────────────────────────────────────────
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x111111);
+
+      const camera = new THREE.PerspectiveCamera(
+        45, window.innerWidth / window.innerHeight, 0.1, 1000
+      );
+      camera.position.set(40, 40, 40);
+      camera.up.set(0, 0, 1);
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+      window.addEventListener("resize", () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.target.set(0, 0, 5);
+
+      // Ground grid + axes.
+      const grid = new THREE.GridHelper(100, 50, 0x444444, 0x222222);
+      grid.rotation.x = Math.PI / 2;     // make grid lie on z=0
+      scene.add(grid);
+      scene.add(new THREE.AxesHelper(8));
+
+      // ─── hexapod model ─────────────────────────────────────────────
+      const LEG_NAMES = [
+        "front_left",  "front_right",
+        "mid_left",    "mid_right",
+        "rear_left",   "rear_right",
+      ];
+
+      const bodyGroup = new THREE.Group();
+      scene.add(bodyGroup);
+
+      // Body plate (hex outline through the 6 coxa starts).
+      const bodyGeom = new THREE.BufferGeometry();
+      bodyGeom.setAttribute("position", new THREE.BufferAttribute(new Float32Array(7 * 3), 3));
+      const bodyLine = new THREE.LineLoop(bodyGeom, new THREE.LineBasicMaterial({ color: 0xffffff }));
+      bodyGroup.add(bodyLine);
+
+      // One line per leg (4 points: coxa.start, coxa.end, femur.end, foot).
+      const legLines = {};
+      const footMarkers = {};
+      for (const name of LEG_NAMES) {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(4 * 3), 3));
+        const line = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xff5050, linewidth: 2 }));
+        bodyGroup.add(line);
+        legLines[name] = line;
+
+        const marker = new THREE.Mesh(
+          new THREE.SphereGeometry(0.4, 12, 8),
+          new THREE.MeshBasicMaterial({ color: 0xff5050 })
+        );
+        marker.userData.material = marker.material;
+        bodyGroup.add(marker);
+        footMarkers[name] = marker;
+      }
+
+      // ─── support polygons (tripod groups) ──────────────────────────
+      // Tripod gait groups, hardcoded — must match TripodGait.GROUPS in core.
+      const TRIPOD_GROUPS = [
+        { color: 0x4488ff, legs: ["front_right", "mid_left",  "rear_right"] },
+        { color: 0xff8844, legs: ["front_left",  "mid_right", "rear_left"]  },
+      ];
+      const polyMeshes = TRIPOD_GROUPS.map((g) => {
+        const geom = new THREE.BufferGeometry();
+        geom.setAttribute("position", new THREE.BufferAttribute(new Float32Array(3 * 3), 3));
+        geom.setIndex([0, 1, 2]);
+        const mesh = new THREE.Mesh(
+          geom,
+          new THREE.MeshBasicMaterial({
+            color: g.color, transparent: true, opacity: 0.25,
+            side: THREE.DoubleSide, depthWrite: false,
+          })
+        );
+        scene.add(mesh);
+        // edge outline
+        const edgeGeom = new THREE.BufferGeometry();
+        edgeGeom.setAttribute("position", new THREE.BufferAttribute(new Float32Array(4 * 3), 3));
+        const edge = new THREE.Line(edgeGeom, new THREE.LineBasicMaterial({ color: g.color }));
+        scene.add(edge);
+        return { mesh, edge };
+      });
+
+      function updatePolygons(state) {
+        const pose = state.pose;
+        const c = Math.cos(pose.yaw), s = Math.sin(pose.yaw);
+        const toWorld = (b) => [
+          pose.x + c * b[0] - s * b[1],
+          pose.y + s * b[0] + c * b[1],
+          0.02,                              // sit just above the grid
+        ];
+        TRIPOD_GROUPS.forEach((group, i) => {
+          const feetWorld = group.legs.map((name) => toWorld(state.legs[name].foot));
+          // Sort by angle around centroid for non-self-intersecting triangle.
+          const cx = (feetWorld[0][0] + feetWorld[1][0] + feetWorld[2][0]) / 3;
+          const cy = (feetWorld[0][1] + feetWorld[1][1] + feetWorld[2][1]) / 3;
+          feetWorld.sort((a, b) =>
+            Math.atan2(a[1] - cy, a[0] - cx) - Math.atan2(b[1] - cy, b[0] - cx)
+          );
+          const { mesh, edge } = polyMeshes[i];
+          const arr = mesh.geometry.attributes.position.array;
+          for (let k = 0; k < 3; k++) {
+            arr[k * 3 + 0] = feetWorld[k][0];
+            arr[k * 3 + 1] = feetWorld[k][1];
+            arr[k * 3 + 2] = feetWorld[k][2];
+          }
+          mesh.geometry.attributes.position.needsUpdate = true;
+          mesh.geometry.computeBoundingSphere();
+
+          const earr = edge.geometry.attributes.position.array;
+          for (let k = 0; k < 3; k++) {
+            earr[k * 3 + 0] = feetWorld[k][0];
+            earr[k * 3 + 1] = feetWorld[k][1];
+            earr[k * 3 + 2] = feetWorld[k][2];
+          }
+          earr[9] = feetWorld[0][0];
+          earr[10] = feetWorld[0][1];
+          earr[11] = feetWorld[0][2];
+          edge.geometry.attributes.position.needsUpdate = true;
+        });
+      }
+
+      // World-space body trail.
+      const trailMax = 600;
+      const trailGeom = new THREE.BufferGeometry();
+      trailGeom.setAttribute("position", new THREE.BufferAttribute(new Float32Array(trailMax * 3), 3));
+      const trailLine = new THREE.Line(trailGeom, new THREE.LineBasicMaterial({ color: 0x66aaff }));
+      scene.add(trailLine);
+      let trailCount = 0;
+
+      // ─── transform helpers ─────────────────────────────────────────
+      // Body→world: rotate by yaw (about z), then translate by (x, y).
+      function bodyToWorld(p, pose) {
+        const c = Math.cos(pose.yaw), s = Math.sin(pose.yaw);
+        return [
+          pose.x + c * p[0] - s * p[1],
+          pose.y + s * p[0] + c * p[1],
+          p[2],
+        ];
+      }
+
+      // The frontend doesn't have FK — it relies on the joint positions implied
+      // by the foot position only. We approximate intermediate joints by drawing
+      // a straight line coxa_start -> foot. (Good enough as a first pass; we
+      // can stream coxa.end / femur.end too if we want jointed legs.)
+      function setLine(line, points) {
+        const arr = line.geometry.attributes.position.array;
+        for (let i = 0; i < points.length; i++) {
+          arr[i * 3 + 0] = points[i][0];
+          arr[i * 3 + 1] = points[i][1];
+          arr[i * 3 + 2] = points[i][2];
+        }
+        line.geometry.attributes.position.needsUpdate = true;
+        line.geometry.setDrawRange(0, points.length);
+      }
+
+      function applyState(state) {
+        const pose = state.pose;
+        bodyGroup.position.set(pose.x, pose.y, pose.z);
+        bodyGroup.rotation.z = pose.yaw;
+
+        // Body outline = the 6 coxa starts in body frame.
+        const arr = bodyLine.geometry.attributes.position.array;
+        LEG_NAMES.forEach((name, i) => {
+          const cs = state.legs[name].coxa_start;
+          arr[i * 3 + 0] = cs[0];
+          arr[i * 3 + 1] = cs[1];
+          arr[i * 3 + 2] = cs[2] - pose.z;   // bodyGroup is positioned at pose.z
+        });
+        arr[18] = arr[0]; arr[19] = arr[1]; arr[20] = arr[2];
+        bodyLine.geometry.attributes.position.needsUpdate = true;
+
+        // Each leg as a real jointed chain. All in body frame; bodyGroup
+        // carries the world transform.
+        LEG_NAMES.forEach((name) => {
+          const leg = state.legs[name];
+          if (!leg) return;
+          const offsetZ = (p) => [p[0], p[1], p[2] - pose.z];
+          const pts = [
+            offsetZ(leg.coxa_start),
+            offsetZ(leg.coxa_end),
+            offsetZ(leg.femur_end),
+            offsetZ(leg.foot),
+          ];
+          setLine(legLines[name], pts);
+          const m = footMarkers[name];
+          m.position.set(pts[3][0], pts[3][1], pts[3][2]);
+          m.material.color.setHex(leg.contact ? 0x44ff66 : 0xff5050);
+        });
+
+        updatePolygons(state);
+
+        // Trail in world frame.
+        const tarr = trailGeom.attributes.position.array;
+        const idx = (trailCount % trailMax) * 3;
+        tarr[idx + 0] = pose.x;
+        tarr[idx + 1] = pose.y;
+        tarr[idx + 2] = 0;
+        trailCount++;
+        trailGeom.attributes.position.needsUpdate = true;
+        trailGeom.setDrawRange(0, Math.min(trailCount, trailMax));
+
+        info.textContent =
+          `t=${state.t.toFixed(2)}  ` +
+          `pose=(${pose.x.toFixed(1)}, ${pose.y.toFixed(1)}, yaw=${pose.yaw.toFixed(2)})  ` +
+          `twist=(${state.twist.vx.toFixed(2)}, ${state.twist.vy.toFixed(2)}, ${state.twist.omega.toFixed(2)})`;
+      }
+
+      // ─── websocket ─────────────────────────────────────────────────
+      const ws = new WebSocket("ws://127.0.0.1:8765");
+      ws.onopen = () => { info.textContent = "connected"; };
+      ws.onclose = () => { info.textContent = "disconnected"; };
+      ws.onmessage = (ev) => {
+        const msg = JSON.parse(ev.data);
+        if (msg.type === "state") applyState(msg.data);
+      };
+
+      function send(obj) {
+        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+      }
+
+      // ─── input ─────────────────────────────────────────────────────
+      const keys = {};
+      window.addEventListener("keydown", (e) => { keys[e.key.toLowerCase()] = true; pushTwist(); });
+      window.addEventListener("keyup",   (e) => { keys[e.key.toLowerCase()] = false; pushTwist(); });
+
+      function bindSlider(id, type, key) {
+        const el = document.getElementById(id);
+        const v  = document.getElementById(id + "-v");
+        const send_ = () => {
+          v.textContent = el.value;
+          send({ type, [key]: parseFloat(el.value) });
+        };
+        el.addEventListener("input", send_);
+        // push initial values once the socket opens
+        ws.addEventListener("open", send_);
+      }
+      bindSlider("height", "set_height",        "z");
+      bindSlider("step",   "set_step_length",   "length");
+      bindSlider("radius", "set_stance_radius", "radius");
+
+      function pushTwist() {
+        if (keys[" "]) { send({ type: "stop" }); return; }
+        const vx = (keys["w"] ? 2 : 0) - (keys["s"] ? 2 : 0);
+        const vy = (keys["a"] ? 2 : 0) - (keys["d"] ? 2 : 0);
+        const omega = (keys["q"] ? 0.6 : 0) - (keys["e"] ? 0.6 : 0);
+        send({ type: "twist", vx, vy, omega });
+      }
+
+      // ─── render loop ───────────────────────────────────────────────
+      function tick() {
+        controls.update();
+        renderer.render(scene, camera);
+        requestAnimationFrame(tick);
+      }
+      tick();
+    </script>
+  </body>
+</html>
