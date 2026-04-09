@@ -193,8 +193,21 @@ class Gait:
 
             if crossed_swing_end:
                 # Foot lands. Lock its current world position for the stance.
-                target_body = self._swing_target_body.get(key, neutral)
-                self._stance_world[key] = pose.transform(target_body)
+                #
+                # For a NATURAL swing-end (phase wraps through 0.5), the foot
+                # is already exactly at `_swing_target_body`, so we use that.
+                #
+                # For a REFLEX swing-end (contact sensor fired mid-swing), the
+                # foot is *not* at the planned end yet — it's somewhere up in
+                # the lift arc. Locking to the planned end would drag the foot
+                # down THROUGH the contact point ("pushes into the obstacle").
+                # We instead lock to wherever the foot currently is on its
+                # interpolated swing trajectory.
+                if crossed_swing_end_reflex:
+                    current_body = self._swing_at(leg, local_natural, neutral)
+                else:
+                    current_body = self._swing_target_body.get(key, neutral)
+                self._stance_world[key] = pose.transform(current_body)
 
             if local < 0.5:
                 # swing — interpolate body-frame, add lift arc

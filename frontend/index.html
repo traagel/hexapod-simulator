@@ -58,7 +58,28 @@
       <label>z</label>
       <input id="tz" type="range" min="-10" max="20" step="0.5" value="0" />
       <span class="v" id="tz-v">0</span>
+      <hr style="opacity:0.3;margin:8px 0">
+      <label>contacts</label>
+      <div id="contacts" style="display:flex;gap:6px;flex-wrap:wrap;font:11px monospace">
+        <span class="c" data-leg="front_left">FL</span>
+        <span class="c" data-leg="front_right">FR</span>
+        <span class="c" data-leg="mid_left">ML</span>
+        <span class="c" data-leg="mid_right">MR</span>
+        <span class="c" data-leg="rear_left">RL</span>
+        <span class="c" data-leg="rear_right">RR</span>
+      </div>
     </div>
+    <style>
+      #contacts .c {
+        padding: 2px 6px; border-radius: 3px;
+        background: #333; color: #888;
+        border: 1px solid #555;
+      }
+      #contacts .c.on {
+        background: #1a8a2a; color: #e8ffe8;
+        border-color: #44ff66;
+      }
+    </style>
     <div id="help">
       <kbd>W</kbd>/<kbd>S</kbd> forward/back &nbsp;
       <kbd>A</kbd>/<kbd>D</kbd> strafe &nbsp;
@@ -276,6 +297,14 @@
         });
 
         updatePolygons(state);
+
+        // Per-leg contact strip — turns green when the firmware reports the
+        // bumper closed for that leg's bit in the feedback frame.
+        document.querySelectorAll("#contacts .c").forEach((el) => {
+          const name = el.dataset.leg;
+          const on = state.legs[name] && state.legs[name].contact;
+          el.classList.toggle("on", !!on);
+        });
 
         // Trail in world frame.
         const tarr = trailGeom.attributes.position.array;

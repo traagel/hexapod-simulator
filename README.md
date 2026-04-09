@@ -31,7 +31,8 @@ serial via custom C++ firmware in `firmware/servo2040/`.
   matplotlib viewer, a three.js browser, or (planned) a Servo2040 over USB.
 - **Live three.js frontend** — orbit camera, jointed leg rendering, support
   triangles, body trail, contact-coloured feet, sliders for height / step /
-  stance radius, WSAD/QE keyboard control, per-leg manual foot-target override.
+  stance radius, WSAD/QE keyboard control, per-leg manual foot-target override,
+  live contact strip lighting up from the firmware feedback frame.
 - **Real hardware path is built** — `HostSerialDriver` speaks a binary frame
   protocol to a Pimoroni Servo2040, with per-servo calibration tables, a
   firmware-side slew limiter, watchdog, and auto-reconnect on the host.
@@ -154,7 +155,7 @@ frontend/index.html             three.js client (CDN, no build step)
 server.py                       --device /dev/ttyACM0 for hardware mode
 main.py                         entry point for the matplotlib viz path
 scripts/hold_zero.py            hold every servo at calibrated centre
-tests/                          85 tests · pytest, no hardware required
+tests/                          86 tests · pytest, no hardware required
 ```
 
 ---
@@ -412,7 +413,7 @@ via X/Y/Z sliders — handy for verifying IK or calibrating mechanical zeros.
 ### Tests
 
 ```bash
-uv run pytest        # 85 tests, no hardware needed
+uv run pytest        # 86 tests, no hardware needed
 ```
 
 ---
@@ -615,8 +616,13 @@ for toolchain install and build/flash instructions.
   rate derived from the servo profile's `max_speed_dps` (≈3407 µs/s for
   the DS3235SSG). Result: continuous host trajectories pass through
   unchanged; abrupt host commands get smoothed.
-- 50 Hz feedback frame with contact bits (currently stubbed to 0; wire 6
-  bumpers to `SENSOR_1..6` to populate them).
+- 50 Hz feedback frame with contact bits read live from the 6 `SENSOR_1..6`
+  inputs via the analog mux. Pull-downs are configured at boot, so an open
+  input reads ~0 V and a switch shorting to 3.3 V drives it high; threshold
+  is 1.0 V. Sensor → leg-bit mapping (matching `CONTACT_ORDER` in
+  `protocol.py`):
+  `SENSOR_1` → front_left, `SENSOR_2` → front_right, `SENSOR_3` → mid_left,
+  `SENSOR_4` → mid_right, `SENSOR_5` → rear_left, `SENSOR_6` → rear_right.
 - Watchdog: 500 ms without a valid command frame disables the cluster.
   (Note: on Pimoroni's `ServoCluster`, `disable_all()` does NOT actually
   drop the PWM line; the servos hold the last latched position. This is
@@ -637,7 +643,8 @@ for toolchain install and build/flash instructions.
 - Tunable cycle time, step length cap, body height, stance radius
 - Idle→active "kick" — instant response to twist commands
 - Contact sensor plumbed end to end (`SimDriver` synthesizes from foot z)
-- Early-touchdown reflex (terminate swing on contact)
+- Early-touchdown reflex (terminate swing on contact, lock world position
+  at the actual contact point — *not* the planned ground-level landing)
 - Matplotlib viz + three.js browser viz, both consumers of the same `Robot`
 - WebSocket transport, JSON wire format = `RobotState.to_dict()`
 - Live UI: WSAD/QE control, sliders for height/step/radius, contact-coloured feet,
@@ -657,7 +664,8 @@ for toolchain install and build/flash instructions.
 
 - Late-touchdown extension (probe down until contact)
 - Coordinated phase pause (halt other tripod when one reflex extends a swing)
-- Real ground-contact bumpers wired to SENSOR_1..6 (firmware stub today)
+- Coordinated phase pause (when reflex extends one swing, the other tripod
+  should stop advancing instead of marching on)
 - Body roll/pitch from leg load distribution
 - IMU integration (host outer loop, MCU inner loop)
 - Reverse-engineer a real fail-safe for the Servo2040 watchdog

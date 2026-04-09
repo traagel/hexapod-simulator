@@ -23,6 +23,8 @@
 
 #include "pico/stdlib.h"
 #include "servo2040.hpp"
+#include "analog.hpp"
+#include "analogmux.hpp"
 
 using namespace servo;
 
@@ -52,6 +54,28 @@ static constexpr float MID_PULSE_US = 1500.0f;
 // ── servo cluster ──────────────────────────────────────────────────────────
 // All 18 servos on PIO0 SM0, starting at SERVO_1 (GPIO 0).
 static ServoCluster cluster(pio0, 0, servo2040::SERVO_1, NUM_CHANNELS);
+
+// ── contact sensors ────────────────────────────────────────────────────────
+// The Servo2040 has 6 analog SENSOR inputs sharing a single ADC via a 3:8
+// analog mux. We configure pull-downs and read each sensor digitally — any
+// reading above SENSOR_THRESHOLD_V counts as "in contact". Wire a momentary
+// switch from 3.3V to a SENSOR pin to act as a bumper.
+//
+// Mapping (must match CONTACT_ORDER in src/hexapod/drivers/servo/protocol.py):
+//   SENSOR_1 → bit 0 → front_left
+//   SENSOR_2 → bit 1 → front_right
+//   SENSOR_3 → bit 2 → mid_left
+//   SENSOR_4 → bit 3 → mid_right
+//   SENSOR_5 → bit 4 → rear_left
+//   SENSOR_6 → bit 5 → rear_right
+static constexpr float SENSOR_THRESHOLD_V = 1.0f;
+
+static Analog    sen_adc(servo2040::SHARED_ADC);
+static AnalogMux mux(servo2040::ADC_ADDR_0,
+                     servo2040::ADC_ADDR_1,
+                     servo2040::ADC_ADDR_2,
+                     PIN_UNUSED,
+                     servo2040::SHARED_ADC);
 
 // ── frame parser state ─────────────────────────────────────────────────────
 static uint8_t  rx_buf[CMD_FRAME_LEN];
@@ -141,9 +165,17 @@ static bool poll_input() {
 }
 
 static uint8_t read_contacts() {
-    // TODO: read 6 contact bumpers (e.g. via SENSOR_1..6 with the analog mux,
-    // or via spare GPIOs if you wire them differently). For now report none.
-    return 0x00;
+    // Walk all 6 sensor inputs through the mux. A reading above the
+    // threshold means the bumper switch is pressed (3.3 V → input);
+    // released sits near 0 V because of the configured pull-down.
+    uint8_t bits = 0;
+    for (uint i = 0; i < servo2040::NUM_SENSORS; ++i) {
+        mux.select(servo2040::SENSOR_1_ADDR + i);
+        if (sen_adc.read_voltage() > SENSOR_THRESHOLD_V) {
+            bits |= (uint8_t)(1u << i);
+        }
+    }
+    return bits;
 }
 
 static void send_feedback() {
@@ -160,6 +192,12 @@ int main() {
     cluster.init();
     cluster.enable_all();         // PIO outputs come up at mid pulse
     seed_pulses(MID_PULSE_US);    // keep slew state coherent with hardware
+
+    // Enable pull-downs on every sensor input. Open inputs read ~0 V; a
+    // bumper switch shorting the pin to 3.3 V drives it high.
+    for (uint i = 0; i < servo2040::NUM_SENSORS; ++i) {
+        mux.configure_pulls(servo2040::SENSOR_1_ADDR + i, false, true);
+    }
 
     absolute_time_t last_frame    = get_absolute_time();
     absolute_time_t last_slew     = get_absolute_time();
