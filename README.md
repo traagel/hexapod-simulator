@@ -2,8 +2,18 @@
 
 Real-time hexapod simulator and control stack. Pure-Python core (kinematics,
 gait, pose), a clean public API, and a three.js frontend talking to a Python
-WebSocket server. Designed so the math layer can be ported to a microcontroller
-later without touching anything else.
+WebSocket server. The hardware path drives a Pimoroni Servo2040 over USB
+serial via custom C++ firmware in `firmware/servo2040/`.
+
+> **Hardware reference**: this codebase is built around the 3D-printed
+> hexapod from rob's tech workbench tutorials —
+> <https://github.com/robs-tech-workbench/hexapod_spiderbot_tutorials> and the
+> [`hexapod_spiderbot_mod`](https://github.com/robs-tech-workbench/hexapod_spiderbot_mod)
+> body. Joint lengths in `config/hexapod.yaml` (coxa 5 cm / femur 8 cm /
+> tibia 18 cm with 25° bend) are bearing-to-bearing distances measured on
+> that build with DS3235SSG 270° servos. The kinematic core is independent
+> of mechanical design — point it at any 3-DOF / 6-leg hexapod by changing
+> `config/hexapod.yaml` and the per-servo calibration table.
 
 ---
 
@@ -21,7 +31,13 @@ later without touching anything else.
   matplotlib viewer, a three.js browser, or (planned) a Servo2040 over USB.
 - **Live three.js frontend** — orbit camera, jointed leg rendering, support
   triangles, body trail, contact-coloured feet, sliders for height / step /
-  stance radius, WSAD/QE keyboard control.
+  stance radius, WSAD/QE keyboard control, per-leg manual foot-target override.
+- **Real hardware path is built** — `HostSerialDriver` speaks a binary frame
+  protocol to a Pimoroni Servo2040, with per-servo calibration tables, a
+  firmware-side slew limiter, watchdog, and auto-reconnect on the host.
+- **Bent-tibia support** — kinematic length plus a `bend` constant per joint,
+  so STL parts whose foot pivot doesn't lie on the femur extension still
+  work without re-meshing.
 
 ---
 
@@ -35,7 +51,6 @@ flowchart TB
         WS[WebSocketServer]
         REST[REST · todo]
         ZMQ[ZMQ · todo]
-        SER[USB serial · todo]
     end
 
     subgraph A[4  application / controllers]
@@ -51,7 +66,7 @@ flowchart TB
 
     subgraph D[2  drivers — output abstraction]
         SIM[SimDriver]
-        SERVO[Servo2040Driver · todo]
+        SERIAL[HostSerialDriver]
         MOCK[MockDriver · todo]
     end
 
@@ -100,7 +115,7 @@ src/hexapod/
 │  │  ├─ leg.py           Leg with back-ref to Hexapod
 │  │  ├─ coxa.py          mount, length, angle, world_angle, start, end
 │  │  ├─ femur.py         length, angle, start, end
-│  │  └─ tibia.py         length, angle, start, end
+│  │  └─ tibia.py         length, angle, bend, start, end
 │  ├─ kinematics/
 │  │  ├─ fk/              forward kinematics — joint angles → world point
 │  │  │  ├─ coxa.py       coxa_end = mount + L_coxa·(cos,sin) of world_angle
@@ -116,7 +131,13 @@ src/hexapod/
 │  └─ dto.py              RobotState · PoseDTO · TwistDTO · LegState
 ├─ drivers/
 │  ├─ base.py             JointDriver Protocol
-│  └─ sim.py              SimDriver — writes into in-memory Hexapod
+│  ├─ sim.py              SimDriver — no-op driver, kept for tests
+│  ├─ serial.py           HostSerialDriver — USB serial to Servo2040
+│  └─ servo/
+│     ├─ profile.py       ServoProfile — linear angle→pulse fallback
+│     ├─ calibration.py   per-servo measured tables, piecewise-linear interp
+│     ├─ mapping.py       JointServo, ServoMap — channel routing + lookup
+│     └─ protocol.py      binary frame format (canonical wire spec)
 ├─ controllers/
 │  ├─ base.py             Controller Protocol
 │  └─ twist.py            ConstantTwist
@@ -125,10 +146,15 @@ src/hexapod/
 └─ viz/
    └─ matplotlib.py       MatplotlibViz + run loop (a Robot consumer)
 
-config/hexapod.yaml       body geometry — symmetric mounts, joint defaults
-frontend/index.html       three.js client (CDN, no build step)
-server.py                 entry point: build core, wrap in Robot, run WS server
-main.py                   entry point for the matplotlib viz path
+config/hexapod.yaml             body geometry, mounts, servo channel map
+config/servos/<profile>.yaml    servo electrical/mechanical envelope
+config/calibration/<name>.yaml  per-servo measured angle→pulse tables
+firmware/servo2040/             C++ firmware for the Pimoroni Servo2040
+frontend/index.html             three.js client (CDN, no build step)
+server.py                       --device /dev/ttyACM0 for hardware mode
+main.py                         entry point for the matplotlib viz path
+scripts/hold_zero.py            hold every servo at calibrated centre
+tests/                          85 tests · pytest, no hardware required
 ```
 
 ---
@@ -271,7 +297,7 @@ flowchart TB
     Plane["reduce to 2D in the leg's vertical plane:<br/>r = horizontal − coxa.length<br/>dz = tz − body height"]
     Clamp["clamp d to [|L1−L2|+ε, L1+L2−ε]"]
     Solve["law of cosines:<br/>α = atan2(dz, r)<br/>β = acos((L1²+d²−L2²)/(2 L1 d))<br/>femur = α + β"]
-    Tibia["knee = (L1 cos f, L1 sin f)<br/>φ = atan2(dz−knee_z, r−knee_x)<br/>tibia = femur − φ"]
+    Tibia["knee = (L1 cos f, L1 sin f)<br/>φ = atan2(dz−knee_z, r−knee_x)<br/>tibia = femur − φ − tibia.bend"]
     Out["(coxa, femur, tibia)"]
 
     Target --> Coxa --> Plane --> Clamp --> Solve --> Tibia --> Out
@@ -357,7 +383,7 @@ uv sync
 uv run python main.py
 ```
 
-### Browser frontend (recommended)
+### Browser frontend, simulator
 ```bash
 # terminal 1 — simulation server
 uv run python server.py
@@ -365,31 +391,119 @@ uv run python server.py
 # terminal 2 — static files (so the WS in the page can connect)
 python -m http.server -d frontend 8080
 ```
+
+### Browser frontend, real hardware
+```bash
+# install the optional pyserial extra
+uv sync --extra hardware
+
+# server, pointed at the Servo2040
+uv run python server.py --device /dev/ttyACM0
+
+# static files in another terminal
+python -m http.server -d frontend 8080
+```
+
 Open <http://127.0.0.1:8080/>. Press `W`/`A`/`S`/`D`/`Q`/`E` to drive, `Space`
-to stop. Drag the right-hand sliders to adjust geometry live.
+to stop. Drag the right-hand sliders to adjust geometry live. The
+**foot target** dropdown lets you pick a leg and command its foot directly
+via X/Y/Z sliders — handy for verifying IK or calibrating mechanical zeros.
+
+### Tests
+
+```bash
+uv run pytest        # 85 tests, no hardware needed
+```
 
 ---
 
 ## Configuration
 
-`config/hexapod.yaml` — body is symmetric, so each segment defines `(x, y)`
-for the **left** side and the right is mirrored:
+### `config/hexapod.yaml`
+
+Body is symmetric, so each segment's mount defines `(x, y)` for the **left**
+side and the right is mirrored. Joint dimensions are bearing-to-bearing
+distances. `tibia.bend` is a fixed mechanical offset (in degrees) between
+the line "femur extended straight" and "tibia bearing axis → foot tip" —
+lets a physically bent STL part still be modelled as a straight kinematic
+segment of the chord length:
 
 ```yaml
-height: 5.0
+height: 12.0
 
 coxa:  { length: 5.0,  angle: 0.0 }
 femur: { length: 8.0,  angle: 0.0 }
-tibia: { length: 12.0, angle: 0.0 }
+tibia: { length: 18.0, angle: 0.0, bend: 25.0 }
 
 mounts:
-  front: [6.0, 4.0]
+  front: [6.0, 6.0]
   mid:   [0.0, 5.0]
   rear:  [-6.0, 4.0]
 ```
 
-The loader (`core/config.py`) expands these into six per-leg dicts and sign-flips
-the right side's joint defaults to keep symmetry.
+A **`servos:`** section declares which channel on the Servo2040 each joint
+is wired to, plus optional `inverted: true` (servo turns the opposite way to
+the kinematic convention) and `trim_deg: <float>` (mechanical zero offset
+applied before the calibration lookup):
+
+```yaml
+servos:
+  profile: ds3235ssg
+  legs:
+    front_right:
+      coxa:  { channel: 0 }
+      femur: { channel: 1, inverted: true }
+      tibia: { channel: 2, inverted: true }
+    front_left:
+      coxa:  { channel: 3, inverted: true }
+      femur: { channel: 4 }
+      tibia: { channel: 5 }
+    # …mid and rear similarly
+```
+
+### `config/servos/<profile>.yaml`
+
+Per-servo-model envelope. Linear angle→pulse map fallback used when no
+calibration is available. `max_speed_dps` is informational on the host but
+the firmware slew limiter derives its rate from it:
+
+```yaml
+name: ds3235ssg
+frequency_hz: 50
+pulse_min_us: 500
+pulse_max_us: 2500
+angle_min_deg: -135
+angle_max_deg: 135
+max_speed_dps: 460
+```
+
+### `config/calibration/<profile>.yaml`
+
+Per-physical-servo measured `(deg → pulse_us)` table, taken across the full
+mechanical travel. The host interpolates piecewise-linearly. This captures
+each individual servo's mechanical zero offset AND the slight nonlinearity
+at the ends of the travel that a single linear slope misses. Loaded
+automatically by `ServoMap.from_config` if it exists at
+`<config_dir>/calibration/<profile>.yaml`; pass `calibration=False` to
+disable.
+
+```yaml
+servo: ds3235ssg
+zero_offset_deg: 135        # IK angle 0 ↔ this row in the table
+legs:
+  front_right:
+    coxa:
+      - {deg:   0, pulse_us:  470}
+      - {deg:  45, pulse_us:  780}
+      - {deg:  90, pulse_us: 1080}
+      - {deg: 135, pulse_us: 1360}
+      - {deg: 180, pulse_us: 1695}
+      - {deg: 225, pulse_us: 2000}
+      - {deg: 270, pulse_us: 2330}
+    femur: [...]
+    tibia: [...]
+  # ... five more legs
+```
 
 ---
 
@@ -427,7 +541,7 @@ example (~100 lines).
 
 ---
 
-## Hardware path (planned)
+## Hardware path
 
 ```mermaid
 flowchart LR
@@ -436,12 +550,12 @@ flowchart LR
         GAIT[Gait]
         IK[IK / FK]
         POSE[Pose]
-        DRV[HostSerialDriver<br/>todo]
+        DRV[HostSerialDriver]
     end
 
     subgraph mcu[MCU · Servo2040 · C++]
         RX[binary frame parser]
-        LERP[per-joint lerp +<br/>velocity clamp]
+        SLEW[200 Hz slew limiter]
         PIO[PIO PWM<br/>18 servos]
         SENSE[contact sensors]
     end
@@ -450,27 +564,63 @@ flowchart LR
     ROBOT --> POSE
     ROBOT --> DRV
 
-    DRV -- "joint frame ~50 Hz" --> RX
-    RX --> LERP --> PIO
+    DRV -- "command frame ~30 Hz" --> RX
+    RX --> SLEW --> PIO
 
-    SENSE -- "contact byte" --> DRV
+    SENSE -- "feedback frame 50 Hz" --> DRV
     DRV --> ROBOT
 ```
 
-The key insight: **the only thing that changes when hardware lands is the
-driver**. The gait, IK, pose math, controllers, transports, viz all stay
-identical. The MCU is dumb on purpose — the gait runs on the host, the MCU
-just smooths the joint stream and reports contact bits.
+The whole hardware path is built. Only the driver swaps:
 
-Recommended split:
+```python
+# server.py picks based on the --device flag
+driver = HostSerialDriver(servo_map, device="/dev/ttyACM0")
+robot  = Robot(hexapod, gait, driver, cycle_seconds=0.6)
+```
 
-- **Host (Python)** runs at 50–100 Hz, computes IK and gait, sends 18 ×
-  uint16 servo microseconds in a packed binary frame.
-- **MCU (C++)** runs a 200 Hz loop, linearly interpolates between successive
-  host targets with a per-joint angular-velocity clamp, generates PWM via PIO,
-  reads contact sensors, sends a 1-byte feedback frame (6 bits, one per leg).
-- **Watchdog**: if no host packet for 500 ms, MCU commands all joints to a
-  known safe stand pose.
+### Wire protocol
+
+Defined in `src/hexapod/drivers/servo/protocol.py` — the canonical reference
+that the firmware mirrors.
+
+| Direction | Bytes | Layout |
+|---|---|---|
+| Host → MCU (command) | 38 | `0xA5 \| 18 × uint16 LE pulse_us \| XOR` |
+| MCU → Host (feedback) | 3 | `0x5A \| contact_bits \| XOR` |
+
+Contact bit ordering (LSB first): `front_left`, `front_right`, `mid_left`,
+`mid_right`, `rear_left`, `rear_right`.
+
+### Host (`src/hexapod/drivers/serial.py`)
+
+- Implements the `JointDriver` protocol — drop-in for `SimDriver`.
+- Lazy-imports `pyserial` (optional `[hardware]` extra) so the simulator
+  path doesn't require it.
+- Per-frame: looks up each joint's channel + calibration, applies trim and
+  inversion, interpolates the calibration table, packs all 18 pulses, sends
+  one command frame.
+- **Resilient**: on `OSError` (transient USB hiccup, MCU reboot, kernel EIO)
+  it logs once, closes the port, and retries opening every 2 s. The robot
+  loop never crashes on a serial glitch.
+
+### Firmware (`firmware/servo2040/`)
+
+C++, built against pico-sdk + pimoroni-pico. See `firmware/servo2040/README.md`
+for toolchain install and build/flash instructions.
+
+- Receives command frames over USB CDC, validates the XOR checksum, decodes
+  the 18 pulse widths into a `target_pulse[]` table.
+- 200 Hz inner loop walks `current_pulse[]` toward `target_pulse[]` at a
+  rate derived from the servo profile's `max_speed_dps` (≈3407 µs/s for
+  the DS3235SSG). Result: continuous host trajectories pass through
+  unchanged; abrupt host commands get smoothed.
+- 50 Hz feedback frame with contact bits (currently stubbed to 0; wire 6
+  bumpers to `SENSOR_1..6` to populate them).
+- Watchdog: 500 ms without a valid command frame disables the cluster.
+  (Note: on Pimoroni's `ServoCluster`, `disable_all()` does NOT actually
+  drop the PWM line; the servos hold the last latched position. This is
+  acknowledged in the source.)
 
 ---
 
@@ -480,7 +630,9 @@ Recommended split:
 
 - Pure Python core (kinematics, gait, pose) with no I/O
 - Analytical IK with reachability clamp + safety net
+- Tibia bend support (rigid mechanical offset baked into FK and IK)
 - Tripod gait with world-locked stance + idle/stop handling
+- Workspace-aware default `neutral_radius` for asymmetric leg geometries
 - Body pose decoupled from feet (no slide bug)
 - Tunable cycle time, step length cap, body height, stance radius
 - Idle→active "kick" — instant response to twist commands
@@ -490,12 +642,23 @@ Recommended split:
 - WebSocket transport, JSON wire format = `RobotState.to_dict()`
 - Live UI: WSAD/QE control, sliders for height/step/radius, contact-coloured feet,
   support triangles, body trail
+- **Manual foot-target override** in the UI: pick a leg, drag X/Y/Z sliders,
+  the gait yields control of that leg until you switch back to "off"
+- **Real hardware path**: `HostSerialDriver` + Servo2040 C++ firmware,
+  binary frame protocol, 200 Hz firmware-side slew limiter, watchdog,
+  host-side auto-reconnect on USB failure
+- **Per-servo calibration**: YAML measurement tables, piecewise-linear
+  interpolation, pulled in automatically by `ServoMap.from_config`
+- **85-test suite** covering pose, IK·FK round-trip (incl. with bend),
+  gait invariants, DTO round-trip, calibration interpolation, wire
+  protocol round-trip, driver resilience
 
 **Next**
 
 - Late-touchdown extension (probe down until contact)
 - Coordinated phase pause (halt other tripod when one reflex extends a swing)
-- `HostSerialDriver` + Servo2040 C++ skeleton
+- Real ground-contact bumpers wired to SENSOR_1..6 (firmware stub today)
 - Body roll/pitch from leg load distribution
 - IMU integration (host outer loop, MCU inner loop)
-# hexapod-simulator
+- Reverse-engineer a real fail-safe for the Servo2040 watchdog
+  (Pimoroni's `disable_all()` doesn't actually drop the PWM line)
