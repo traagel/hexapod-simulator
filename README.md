@@ -498,3 +498,4 @@ Recommended split:
 - `HostSerialDriver` + Servo2040 C++ skeleton
 - Body roll/pitch from leg load distribution
 - IMU integration (host outer loop, MCU inner loop)
+# hexapod-simulator
