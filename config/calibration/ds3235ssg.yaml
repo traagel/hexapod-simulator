@@ -1,0 +1,173 @@
+# Per-servo calibration table for the DS3235SSG hexapod build.
+#
+# Each entry is a list of measured (commanded_deg, observed_pulse_us) samples,
+# taken across the full 0..270° servo travel. Mechanical neutral sits at
+# `zero_offset_deg` (= 135°), so an IK joint angle of 0 rad maps to that
+# row in the table.
+#
+# Use piecewise-linear interpolation between samples when converting an IK
+# angle to a pulse width — this captures per-servo zero offsets AND the
+# slight nonlinearity at the ends of the travel that a single linear
+# slope misses.
+#
+# Source: config/calibration/ds3235ssg.csv
+
+servo: ds3235ssg
+zero_offset_deg: 135
+
+legs:
+  front_left:
+    coxa:   # LF1
+      - {deg:   0, pulse_us:  490}
+      - {deg:  45, pulse_us:  815}
+      - {deg:  90, pulse_us: 1140}
+      - {deg: 135, pulse_us: 1460}
+      - {deg: 180, pulse_us: 1775}
+      - {deg: 225, pulse_us: 2080}
+      - {deg: 270, pulse_us: 2375}
+    femur:  # LF2
+      - {deg:   0, pulse_us:  420}
+      - {deg:  45, pulse_us:  720}
+      - {deg:  90, pulse_us: 1050}
+      - {deg: 135, pulse_us: 1365}
+      - {deg: 180, pulse_us: 1690}
+      - {deg: 225, pulse_us: 1990}
+      - {deg: 270, pulse_us: 2300}
+    tibia:  # LF3
+      - {deg:   0, pulse_us:  550}
+      - {deg:  45, pulse_us:  850}
+      - {deg:  90, pulse_us: 1166}
+      - {deg: 135, pulse_us: 1500}
+      - {deg: 180, pulse_us: 1790}
+      - {deg: 225, pulse_us: 2110}
+      - {deg: 270, pulse_us: 2410}
+
+  mid_left:
+    coxa:   # LM1
+      - {deg:   0, pulse_us:  520}
+      - {deg:  45, pulse_us:  833}
+      - {deg:  90, pulse_us: 1150}
+      - {deg: 135, pulse_us: 1470}
+      - {deg: 180, pulse_us: 1775}
+      - {deg: 225, pulse_us: 2090}
+      - {deg: 270, pulse_us: 2395}
+    femur:  # LM2
+      - {deg:   0, pulse_us:  510}
+      - {deg:  45, pulse_us:  833}
+      - {deg:  90, pulse_us: 1130}
+      - {deg: 135, pulse_us: 1450}
+      - {deg: 180, pulse_us: 1770}
+      - {deg: 225, pulse_us: 2080}
+      - {deg: 270, pulse_us: 2390}
+    tibia:  # LM3
+      - {deg:   0, pulse_us:  475}
+      - {deg:  45, pulse_us:  800}
+      - {deg:  90, pulse_us: 1100}
+      - {deg: 135, pulse_us: 1430}
+      - {deg: 180, pulse_us: 1750}
+      - {deg: 225, pulse_us: 2050}
+      - {deg: 270, pulse_us: 2360}
+
+  rear_left:
+    coxa:   # LB1
+      - {deg:   0, pulse_us:  530}
+      - {deg:  45, pulse_us:  840}
+      - {deg:  90, pulse_us: 1160}
+      - {deg: 135, pulse_us: 1490}
+      - {deg: 180, pulse_us: 1790}
+      - {deg: 225, pulse_us: 2110}
+      - {deg: 270, pulse_us: 2400}
+    femur:  # LB2
+      - {deg:   0, pulse_us:  500}
+      - {deg:  45, pulse_us:  800}
+      - {deg:  90, pulse_us: 1120}
+      - {deg: 135, pulse_us: 1450}
+      - {deg: 180, pulse_us: 1775}
+      - {deg: 225, pulse_us: 2070}
+      - {deg: 270, pulse_us: 2370}
+    tibia:  # LB3
+      - {deg:   0, pulse_us:  540}
+      - {deg:  45, pulse_us:  840}
+      - {deg:  90, pulse_us: 1167}
+      - {deg: 135, pulse_us: 1510}
+      - {deg: 180, pulse_us: 1820}
+      - {deg: 225, pulse_us: 2120}
+      - {deg: 270, pulse_us: 2440}
+
+  front_right:
+    coxa:   # RF1
+      - {deg:   0, pulse_us:  470}
+      - {deg:  45, pulse_us:  780}
+      - {deg:  90, pulse_us: 1080}
+      - {deg: 135, pulse_us: 1360}
+      - {deg: 180, pulse_us: 1695}
+      - {deg: 225, pulse_us: 2000}
+      - {deg: 270, pulse_us: 2330}
+    femur:  # RF2
+      - {deg:   0, pulse_us:  460}
+      - {deg:  45, pulse_us:  780}
+      - {deg:  90, pulse_us: 1090}
+      - {deg: 135, pulse_us: 1400}
+      - {deg: 180, pulse_us: 1720}
+      - {deg: 225, pulse_us: 2010}
+      - {deg: 270, pulse_us: 2330}
+    tibia:  # RF3
+      - {deg:   0, pulse_us:  465}
+      - {deg:  45, pulse_us:  770}
+      - {deg:  90, pulse_us: 1080}
+      - {deg: 135, pulse_us: 1380}
+      - {deg: 180, pulse_us: 1700}
+      - {deg: 225, pulse_us: 2000}
+      - {deg: 270, pulse_us: 2330}
+
+  mid_right:
+    coxa:   # RM1
+      - {deg:   0, pulse_us:  535}
+      - {deg:  45, pulse_us:  830}
+      - {deg:  90, pulse_us: 1140}
+      - {deg: 135, pulse_us: 1480}
+      - {deg: 180, pulse_us: 1780}
+      - {deg: 225, pulse_us: 2090}
+      - {deg: 270, pulse_us: 2415}
+    femur:  # RM2
+      - {deg:   0, pulse_us:  500}
+      - {deg:  45, pulse_us:  820}
+      - {deg:  90, pulse_us: 1120}
+      - {deg: 135, pulse_us: 1460}
+      - {deg: 180, pulse_us: 1760}
+      - {deg: 225, pulse_us: 2070}
+      - {deg: 270, pulse_us: 2390}
+    tibia:  # RM3
+      - {deg:   0, pulse_us:  440}
+      - {deg:  45, pulse_us:  750}
+      - {deg:  90, pulse_us: 1070}
+      - {deg: 135, pulse_us: 1380}
+      - {deg: 180, pulse_us: 1710}
+      - {deg: 225, pulse_us: 1980}
+      - {deg: 270, pulse_us: 2300}
+
+  rear_right:
+    coxa:   # RB1
+      - {deg:   0, pulse_us:  530}
+      - {deg:  45, pulse_us:  845}
+      - {deg:  90, pulse_us: 1150}
+      - {deg: 135, pulse_us: 1470}
+      - {deg: 180, pulse_us: 1790}
+      - {deg: 225, pulse_us: 2080}
+      - {deg: 270, pulse_us: 2400}
+    femur:  # RB2
+      - {deg:   0, pulse_us:  530}
+      - {deg:  45, pulse_us:  840}
+      - {deg:  90, pulse_us: 1160}
+      - {deg: 135, pulse_us: 1480}
+      - {deg: 180, pulse_us: 1785}
+      - {deg: 225, pulse_us: 2095}
+      - {deg: 270, pulse_us: 2400}
+    tibia:  # RB3
+      - {deg:   0, pulse_us:  490}
+      - {deg:  45, pulse_us:  790}
+      - {deg:  90, pulse_us: 1120}
+      - {deg: 135, pulse_us: 1440}
+      - {deg: 180, pulse_us: 1770}
+      - {deg: 225, pulse_us: 2070}
+      - {deg: 270, pulse_us: 2390}

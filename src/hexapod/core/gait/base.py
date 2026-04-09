@@ -68,10 +68,27 @@ class Gait:
     # --- geometry -----------------------------------------------------------
 
     def neutral_position(self, leg: Leg) -> tuple[float, float, float]:
-        """Foot rest position on the ground, outward from the coxa mount."""
+        """Foot rest position on the ground, outward from the coxa mount.
+
+        When `neutral_radius` is unset, pick a radius that places the foot
+        comfortably in the middle of the leg's reachable annulus given the
+        body height. The IK workspace in the leg's vertical plane is
+            d ∈ [|L1−L2|, L1+L2]
+        so we aim for d_target = max(L1, L2) (the middle of that range when
+        L1 ≠ L2) and back out the horizontal radius from the body height.
+        This stays valid for both equal-length and asymmetric leg geometries.
+        """
         radius = self.neutral_radius
         if radius is None:
-            radius = leg.coxa.length + leg.femur.length * 0.6
+            L1 = leg.femur.length
+            L2 = leg.tibia.length
+            drop = max(0.0, leg.height - self.stance_z)
+            d_target = max(L1, L2)
+            # Clamp into the reachable annulus with a small safety margin so
+            # we stay off the IK clamp boundary.
+            d_target = max(abs(L1 - L2) + 0.5, min(L1 + L2 - 0.5, d_target))
+            horizontal = math.sqrt(max(0.0, d_target * d_target - drop * drop))
+            radius = leg.coxa.length + horizontal
         out = leg.coxa.rest_angle
         mx, my = leg.coxa.mount
         return (mx + radius * math.cos(out), my + radius * math.sin(out), self.stance_z)

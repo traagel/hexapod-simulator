@@ -30,14 +30,34 @@
     <div id="info">connecting…</div>
     <div id="panel">
       <label>height</label>
-      <input id="height"  type="range" min="2"   max="12" step="0.5" value="5"  />
-      <span class="v" id="height-v">5</span>
+      <input id="height"  type="range" min="2"   max="18" step="0.5" value="12" />
+      <span class="v" id="height-v">12</span>
       <label>step</label>
-      <input id="step"    type="range" min="0.5" max="14" step="0.5" value="4"  />
-      <span class="v" id="step-v">4</span>
+      <input id="step"    type="range" min="0.5" max="40" step="0.5" value="10" />
+      <span class="v" id="step-v">10</span>
       <label>radius</label>
-      <input id="radius"  type="range" min="6"   max="14" step="0.5" value="9.8"/>
-      <span class="v" id="radius-v">9.8</span>
+      <input id="radius"  type="range" min="6"   max="24" step="0.5" value="14" />
+      <span class="v" id="radius-v">14</span>
+      <hr style="opacity:0.3;margin:8px 0">
+      <label>foot target</label>
+      <select id="target-leg" style="display:block;width:100%;margin-bottom:4px">
+        <option value="">— off (gait controls all) —</option>
+        <option value="front_left">front_left</option>
+        <option value="front_right">front_right</option>
+        <option value="mid_left">mid_left</option>
+        <option value="mid_right">mid_right</option>
+        <option value="rear_left">rear_left</option>
+        <option value="rear_right">rear_right</option>
+      </select>
+      <label>x</label>
+      <input id="tx" type="range" min="-25" max="30" step="0.5" value="17" />
+      <span class="v" id="tx-v">17</span>
+      <label>y</label>
+      <input id="ty" type="range" min="-25" max="25" step="0.5" value="12" />
+      <span class="v" id="ty-v">12</span>
+      <label>z</label>
+      <input id="tz" type="range" min="-10" max="20" step="0.5" value="0" />
+      <span class="v" id="tz-v">0</span>
     </div>
     <div id="help">
       <kbd>W</kbd>/<kbd>S</kbd> forward/back &nbsp;
@@ -215,7 +235,13 @@
         line.geometry.setDrawRange(0, points.length);
       }
 
+      // Latest state snapshot — cached so the foot-target dropdown can prefill
+      // its X/Y/Z sliders from the actual current neutral foot position of
+      // whatever leg the user picks.
+      let latestState = null;
+
       function applyState(state) {
+        latestState = state;
         const pose = state.pose;
         bodyGroup.position.set(pose.x, pose.y, pose.z);
         bodyGroup.rotation.z = pose.yaw;
@@ -299,6 +325,68 @@
       bindSlider("height", "set_height",        "z");
       bindSlider("step",   "set_step_length",   "length");
       bindSlider("radius", "set_stance_radius", "radius");
+
+      // ─── foot target manual override ───────────────────────────────
+      // The Robot's set_foot_target is one-shot (clears every tick), so the
+      // UI re-asserts the chosen target at ~30 Hz while a leg is selected.
+      // Switching the dropdown to "off" stops sending and the gait takes
+      // back control of that leg on the next tick.
+      const targetLegEl = document.getElementById("target-leg");
+      const txEl = document.getElementById("tx");
+      const tyEl = document.getElementById("ty");
+      const tzEl = document.getElementById("tz");
+      const txV  = document.getElementById("tx-v");
+      const tyV  = document.getElementById("ty-v");
+      const tzV  = document.getElementById("tz-v");
+      function refreshTargetLabels() {
+        txV.textContent = txEl.value;
+        tyV.textContent = tyEl.value;
+        tzV.textContent = tzEl.value;
+      }
+      [txEl, tyEl, tzEl].forEach(el =>
+        el.addEventListener("input", refreshTargetLabels)
+      );
+      let footTargetTimer = null;
+      function pushFootTarget() {
+        const leg = targetLegEl.value;
+        if (!leg) return;
+        send({
+          type: "set_foot_target",
+          leg,
+          x: parseFloat(txEl.value),
+          y: parseFloat(tyEl.value),
+          z: parseFloat(tzEl.value),
+        });
+      }
+      function clampToSlider(el, v) {
+        const min = parseFloat(el.min);
+        const max = parseFloat(el.max);
+        return Math.max(min, Math.min(max, v));
+      }
+      function prefillFromCurrent(legName) {
+        if (!latestState || !latestState.legs[legName]) return;
+        const foot = latestState.legs[legName].foot; // body frame [x,y,z]
+        // Round to the slider's step (0.5) so the values look clean and the
+        // sliders snap.
+        const snap = (v) => Math.round(v * 2) / 2;
+        txEl.value = clampToSlider(txEl, snap(foot[0]));
+        tyEl.value = clampToSlider(tyEl, snap(foot[1]));
+        tzEl.value = clampToSlider(tzEl, snap(foot[2]));
+        refreshTargetLabels();
+      }
+      targetLegEl.addEventListener("change", () => {
+        if (footTargetTimer) {
+          clearInterval(footTargetTimer);
+          footTargetTimer = null;
+        }
+        if (targetLegEl.value) {
+          // Prefill the sliders with the current foot position so the very
+          // first frame we send is a no-op rather than a teleport.
+          prefillFromCurrent(targetLegEl.value);
+          pushFootTarget();                              // immediate
+          footTargetTimer = setInterval(pushFootTarget, 33);  // ~30 Hz
+        }
+      });
 
       function pushTwist() {
         if (keys[" "]) { send({ type: "stop" }); return; }

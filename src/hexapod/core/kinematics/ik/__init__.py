@@ -66,7 +66,9 @@ def solve(leg: Leg, target: tuple[float, float, float]) -> tuple[float, float, f
     knee_x = L1 * math.cos(femur_angle)
     knee_z = L1 * math.sin(femur_angle)
     phi = math.atan2(dz - knee_z, r - knee_x)
-    tibia_angle = femur_angle - phi
+    # Subtract the mechanical bend so the servo command produces the same
+    # physical pose with a bent tibia as a straight one would.
+    tibia_angle = femur_angle - phi - leg.tibia.bend.rad
 
     return (coxa_offset, femur_angle, tibia_angle)
 

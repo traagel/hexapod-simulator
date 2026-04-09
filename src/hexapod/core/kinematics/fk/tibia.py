@@ -16,7 +16,8 @@ def transform(leg: Leg) -> tuple[float, float, float]:
     tibia_angle = leg.tibia.angle.rad
     length = leg.tibia.length
 
-    pitch = femur_angle - tibia_angle
+    # Tibia bend is a fixed mechanical offset on top of the joint angle.
+    pitch = femur_angle - (tibia_angle + leg.tibia.bend.rad)
     horizontal = length * math.cos(pitch)
     vertical = length * math.sin(pitch)
 

@@ -3,7 +3,7 @@
 # and the right side is mirrored (y -> -y).
 # coxa.length and coxa.angle apply to all legs unless overridden.
 
-height: 5.0
+height: 12.0
 
 coxa:
   length: 5.0
@@ -14,10 +14,58 @@ femur:
   angle: 0.0
 
 tibia:
-  length: 12.0
+  # 180 mm bearing-to-foot straight-line distance.
+  length: 18.0
   angle: 0.0
+  # Mechanical bend baked into the part: the angle between "femur extended
+  # straight" and "tibia bearing axis → foot tip". 25° is a starting estimate;
+  # tune empirically by running the calibration sweep and matching the foot
+  # to a physical reference point.
+  bend: 25.0
 
 mounts:
-  front: [6.0, 4.0]
-  mid: [0.0, 5.0]
-  rear: [-6.0, 4.0]
+  # Body-frame (x, y) of the LEFT-side coxa pivot. The right-side mount is
+  # mirrored to (x, -y) by the loader. Measure from the body's geometric
+  # centre to the centre of the coxa pivot bearing on the actual hardware.
+  front: [6.0, 6.0]
+  mid:   [0.0, 5.0]
+  rear:  [-6.0, 4.0]
+
+# ── Servo wiring ─────────────────────────────────────────────────────────
+# Maps each (leg, joint) to a Servo2040 channel index (0..17).
+# `profile` names a file under config/servos/<profile>.yaml that defines the
+# electrical/mechanical limits.
+#
+# Per-joint corrections (defaults shown; omit when zero/false):
+#   trim_deg: <float>   mechanical zero offset added before the angle→pulse map
+#   inverted: <bool>    flip rotation direction (e.g. mirrored side mounts)
+#
+# Right-side joints default to `inverted: true` because they are physically
+# mirrored. Adjust trim_deg per servo after assembly.
+servos:
+  profile: ds3235ssg
+  legs:
+    front_left:
+      coxa:  { channel: 3,  inverted: true }
+      femur: { channel: 4 }
+      tibia: { channel: 5 }
+    front_right:
+      coxa:  { channel: 0 }
+      femur: { channel: 1,  inverted: true }
+      tibia: { channel: 2,  inverted: true }
+    mid_left:
+      coxa:  { channel: 9,  inverted: true }
+      femur: { channel: 10 }
+      tibia: { channel: 11 }
+    mid_right:
+      coxa:  { channel: 6 }
+      femur: { channel: 7,  inverted: true }
+      tibia: { channel: 8,  inverted: true }
+    rear_left:
+      coxa:  { channel: 15, inverted: true }
+      femur: { channel: 16 }
+      tibia: { channel: 17 }
+    rear_right:
+      coxa:  { channel: 12 }
+      femur: { channel: 13, inverted: true }
+      tibia: { channel: 14, inverted: true }

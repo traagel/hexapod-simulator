@@ -1,0 +1,16 @@
+# MG996R-class hobby servo profile.
+#
+# Linear angle→pulse map defined by two anchor points:
+#   (angle_min_deg, pulse_min_us)  ↔  (angle_max_deg, pulse_max_us)
+# Inside that range it's linear; outside it's clamped.
+#
+# `frequency_hz` and `max_speed_dps` are passed through to the MCU smoother
+# (informational on the host side — the host just produces angle targets).
+
+name: mg996r
+frequency_hz: 50
+pulse_min_us: 500
+pulse_max_us: 2500
+angle_min_deg: -90
+angle_max_deg: 90
+max_speed_dps: 300

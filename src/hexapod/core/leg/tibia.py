@@ -11,6 +11,11 @@ class Tibia:
         self.leg = leg
         self.length = length
         self.angle = Angle()
+        # Mechanical bend rigidly built into the part: a non-zero `bend`
+        # means the foot does not lie on the line extended from the femur
+        # when `angle == 0`. FK and IK both fold this in so the kinematic
+        # math sees an effectively straight tibia of length `length`.
+        self.bend = Angle()
 
     @property
     def start(self) -> tuple[float, float, float]:

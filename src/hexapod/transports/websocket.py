@@ -2,9 +2,15 @@
 
 Server protocol:
   → client receives:  {"type": "state", "data": <RobotState dict>}
-  ← client may send:  {"type": "twist", "vx": float, "vy": float, "omega": float}
+  ← client may send:  {"type": "twist", "vx", "vy", "omega"}
                       {"type": "stop"}
-                      {"type": "set_pose", "x": float, "y": float, "yaw": float}
+                      {"type": "set_pose", "x", "y", "yaw"}
+                      {"type": "set_height", "z"}
+                      {"type": "set_step_length", "length"}
+                      {"type": "set_stance_radius", "radius"}
+                      {"type": "set_foot_target", "leg", "x", "y", "z"}
+                          leg ∈ {front_left, front_right, mid_left, mid_right,
+                                 rear_left, rear_right}
 
 The transport never reaches into core. It only calls Robot.* methods.
 """
@@ -16,9 +22,19 @@ import logging
 import websockets
 from websockets.asyncio.server import ServerConnection, serve
 
+from ..core.enums import Segment, Side
 from ..robot import Robot
 
 log = logging.getLogger(__name__)
+
+_LEG_KEYS: dict[str, tuple[Segment, Side]] = {
+    "front_left":  (Segment.FRONT, Side.LEFT),
+    "front_right": (Segment.FRONT, Side.RIGHT),
+    "mid_left":    (Segment.MID,   Side.LEFT),
+    "mid_right":   (Segment.MID,   Side.RIGHT),
+    "rear_left":   (Segment.REAR,  Side.LEFT),
+    "rear_right":  (Segment.REAR,  Side.RIGHT),
+}
 
 
 class WebSocketServer:
@@ -73,6 +89,18 @@ class WebSocketServer:
             self.robot.set_step_length(float(msg.get("length", 4.0)))
         elif kind == "set_stance_radius":
             self.robot.set_stance_radius(float(msg.get("radius", 9.8)))
+        elif kind == "set_foot_target":
+            leg_name = msg.get("leg")
+            leg = _LEG_KEYS.get(leg_name) if isinstance(leg_name, str) else None
+            if leg is not None:
+                self.robot.set_foot_target(
+                    leg,
+                    (
+                        float(msg.get("x", 0.0)),
+                        float(msg.get("y", 0.0)),
+                        float(msg.get("z", 0.0)),
+                    ),
+                )
 
     async def _broadcast_loop(self) -> None:
         dt = 1.0 / self.fps

@@ -150,6 +150,14 @@ class Robot:
                 f = leg.femur.angle.rad
                 ti = leg.tibia.angle.rad
             commands[key] = JointAngles(coxa=c, femur=f, tibia=ti)
+            # Write into the in-memory model directly, so FK and the
+            # visualization see the new pose regardless of whether the
+            # driver is the sim, the WebSocket transport, or real hardware.
+            # SimDriver.write() does the same thing as a side effect; this
+            # makes the model update unconditional.
+            leg.coxa.angle.rad = c
+            leg.femur.angle.rad = f
+            leg.tibia.angle.rad = ti
         self.driver.write(commands)
 
         # 5. Integrate body pose ONLY when at least one leg is committed to a

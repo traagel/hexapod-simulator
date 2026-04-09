@@ -22,3 +22,18 @@ packages = ["src/hexapod"]
 [tool.pyright]
 extraPaths = ["src"]
 
+[project.optional-dependencies]
+hardware = [
+    "pyserial>=3.5",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra"
+

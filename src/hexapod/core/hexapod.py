@@ -28,7 +28,11 @@ class Hexapod:
             leg.coxa.mount = tuple(leg_cfg["mount"])
             for name in ("coxa", "femur", "tibia"):
                 joint = getattr(leg, name)
-                joint.length = leg_cfg["joints"][name]["length"]
-                joint.angle.deg = leg_cfg["joints"][name]["angle"]
+                joint_cfg = leg_cfg["joints"][name]
+                joint.length = joint_cfg["length"]
+                joint.angle.deg = joint_cfg["angle"]
+                # Optional mechanical bend (currently only the tibia has one).
+                if "bend" in joint_cfg and hasattr(joint, "bend"):
+                    joint.bend.deg = joint_cfg["bend"]
             hexapod.legs.add(leg)
         return hexapod

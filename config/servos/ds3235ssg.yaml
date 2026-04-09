@@ -1,0 +1,21 @@
+# DS3235SSG — 35 kg coreless digital servo, 270° range, waterproof.
+#
+# Datasheet:
+#   Pulse range:   500–2500 µs   (neutral = 1500 µs)
+#   Total travel:  270° across the pulse range  → ±135° from neutral
+#   Speed @ 5.0V:  0.13 s / 60°   ≈ 462 dps
+#   Speed @ 6.0V:  0.12 s / 60°   ≈ 500 dps
+#   Speed @ 7.4V:  0.11 s / 60°   ≈ 545 dps
+#   Dead band:     3 µs
+#
+# `max_speed_dps` is set to the conservative 5 V value so the firmware
+# slew limiter never asks the servo to move faster than it physically can.
+# Bump it up if you're running the bus at 6 V or 7.4 V.
+
+name: ds3235ssg
+frequency_hz: 50
+pulse_min_us: 500
+pulse_max_us: 2500
+angle_min_deg: -135
+angle_max_deg: 135
+max_speed_dps: 460
