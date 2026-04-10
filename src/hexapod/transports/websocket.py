@@ -15,16 +15,15 @@ Server protocol:
 The transport never reaches into core. It only calls Robot.* methods.
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
+from typing import TYPE_CHECKING
 
 import websockets
 from websockets.asyncio.server import ServerConnection, serve
-
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
 
 from ..core.enums import Segment, Side
 from ..robot import Robot
