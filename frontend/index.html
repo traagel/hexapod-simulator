@@ -3,78 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <title>Hexapod</title>
-    <style>
-      body { margin: 0; background: #111; color: #ddd; font-family: 'Segoe UI', system-ui, monospace; }
-      #info { position: absolute; top: 8px; left: 8px; padding: 8px 12px;
-              background: rgba(0,0,0,0.65); border-radius: 6px; font-size: 12px;
-              font-family: monospace; backdrop-filter: blur(4px); }
-      #help { position: absolute; bottom: 8px; left: 8px; padding: 8px 12px;
-              background: rgba(0,0,0,0.65); border-radius: 6px; font-size: 11px;
-              backdrop-filter: blur(4px); }
-      #panel { position: absolute; top: 8px; right: 8px; padding: 12px 14px;
-               background: rgba(0,0,0,0.65); border-radius: 8px; font-size: 12px;
-               display: grid; grid-template-columns: auto 160px auto; gap: 6px 10px;
-               align-items: center; backdrop-filter: blur(4px);
-               max-height: calc(100vh - 16px); overflow-y: auto; }
-      #panel input[type=range] { width: 160px; accent-color: #4af; }
-      #panel .v { font-variant-numeric: tabular-nums; min-width: 32px; text-align: right;
-                  font-family: monospace; opacity: 0.7; }
-      #panel label { opacity: 0.8; font-size: 11px; }
-      #panel .section { grid-column: span 3; font-size: 10px; text-transform: uppercase;
-                        letter-spacing: 1.5px; color: #888; margin: 4px 0 2px;
-                        border-bottom: 1px solid #333; padding-bottom: 4px; }
-      #panel hr { display: none; }
-      #panel button {
-        padding: 5px 8px; border: 1px solid #444; border-radius: 4px;
-        background: #222; cursor: pointer; font: 11px monospace;
-        transition: all 0.15s;
-      }
-      #panel button:hover { background: #333; border-color: #666; }
-      kbd { background: #333; padding: 1px 5px; border-radius: 3px; font-size: 10px; }
-
-      /* ── HUD overlay ─────────────────────────────────────────────── */
-      #hud { position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-             pointer-events: none; z-index: 5; }
-      #hud * { pointer-events: none; }
-      .hud-box { position: absolute; font: 12px monospace; color: #0f0;
-                 text-shadow: 0 0 4px rgba(0,255,0,0.4); }
-
-      /* Battery — top right */
-      #hud-bat { top: 12px; right: 200px; display: flex; align-items: center; gap: 6px; }
-      #hud-bat .icon { width: 28px; height: 14px; border: 1.5px solid #0f0; border-radius: 2px;
-                       position: relative; }
-      #hud-bat .icon::after { content: ''; position: absolute; right: -5px; top: 3px;
-                              width: 3px; height: 6px; background: #0f0; border-radius: 0 1px 1px 0; }
-      #hud-bat .fill { position: absolute; left: 1px; top: 1px; bottom: 1px;
-                       background: #0f0; transition: width 0.3s; }
-      #hud-bat.warn { color: #f44; text-shadow: 0 0 6px rgba(255,0,0,0.5); }
-      #hud-bat.warn .icon { border-color: #f44; }
-      #hud-bat.warn .icon::after { background: #f44; }
-      #hud-bat.warn .fill { background: #f44; }
-
-      /* Attitude indicator — bottom centre */
-      #hud-ahi { bottom: 50px; left: 50%; transform: translateX(-50%); }
-      #hud-ahi canvas { border: 1px solid rgba(0,255,0,0.3); border-radius: 50%; }
-
-      /* Compass — top centre */
-      #hud-compass { top: 12px; left: 50%; transform: translateX(-50%);
-                     overflow: hidden; width: 200px; height: 24px;
-                     border: 1px solid rgba(0,255,0,0.3); border-radius: 4px;
-                     background: rgba(0,0,0,0.4); }
-      #hud-compass .strip { position: absolute; top: 0; height: 100%;
-                            white-space: nowrap; font: 11px monospace; color: #0f0;
-                            line-height: 24px; }
-      #hud-compass .caret { position: absolute; top: 0; left: 50%; transform: translateX(-50%);
-                            width: 0; height: 0; border-left: 5px solid transparent;
-                            border-right: 5px solid transparent; border-top: 6px solid #0f0; }
-
-      /* Speed — left centre */
-      #hud-speed { left: 12px; top: 50%; transform: translateY(-50%);
-                   text-align: right; line-height: 1.6; }
-
-      /* Tilt readout — right of AHI */
-      #hud-tilt { bottom: 50px; left: 50%; margin-left: 60px; line-height: 1.6; }
-    </style>
+    <link rel="stylesheet" href="css/style.css" />
     <script type="importmap">
       {
         "imports": {
@@ -86,53 +15,64 @@
   </head>
   <body>
     <div id="info">connecting...</div>
+
+    <!-- HUD overlay -->
     <div id="hud">
-      <!-- Battery -->
       <div id="hud-bat" class="hud-box">
         <div class="icon"><div class="fill" id="bat-fill"></div></div>
         <span id="bat-text">--</span>
       </div>
-      <!-- Compass strip -->
       <div id="hud-compass" class="hud-box">
         <div class="strip" id="compass-strip"></div>
         <div class="caret"></div>
       </div>
-      <!-- Speed -->
       <div id="hud-speed" class="hud-box">
         <div id="speed-val">0.0</div>
         <div style="font-size:9px;opacity:0.6">SPD</div>
       </div>
-      <!-- Artificial horizon -->
       <div id="hud-ahi" class="hud-box">
         <canvas id="ahi-canvas" width="100" height="100"></canvas>
       </div>
-      <!-- Tilt readout -->
       <div id="hud-tilt" class="hud-box">
         <div id="tilt-roll">R 0.0</div>
         <div id="tilt-pitch">P 0.0</div>
       </div>
+      <div id="hud-telemetry" class="hud-box">
+        <div id="hud-clock">00:00:00</div>
+        <div id="hud-uptime">UP 0s</div>
+        <div id="hud-dist">DST 0.0</div>
+        <div id="hud-phase">PH 0.00</div>
+      </div>
+      <div id="hud-right" class="hud-box">
+        <div id="hud-hdg">HDG 0</div>
+        <div id="hud-pos">POS 0,0</div>
+        <div id="hud-fps">FPS --</div>
+        <div id="hud-legs">LEGS 6/6</div>
+      </div>
     </div>
+
+    <!-- Control panel -->
     <div id="panel">
       <div class="section">body</div>
       <label>height</label>
-      <input id="height"  type="range" min="2"   max="18" step="0.5" value="12" />
+      <input id="height" type="range" min="2" max="18" step="0.5" value="12" />
       <span class="v" id="height-v">12</span>
       <label>radius</label>
-      <input id="radius"  type="range" min="6"   max="24" step="0.5" value="14" />
+      <input id="radius" type="range" min="6" max="24" step="0.5" value="14" />
       <span class="v" id="radius-v">14</span>
 
       <div class="section">gait</div>
       <label>step</label>
-      <input id="step"    type="range" min="0.5" max="200" step="0.5" value="10" />
+      <input id="step" type="range" min="0.5" max="200" step="0.5" value="10" />
       <span class="v" id="step-v">10</span>
       <label>lift</label>
-      <input id="lift"    type="range" min="0.5" max="15" step="0.5" value="3" />
+      <input id="lift" type="range" min="0.5" max="15" step="0.5" value="3" />
       <span class="v" id="lift-v">3</span>
       <label>cycle</label>
-      <input id="cycle"   type="range" min="0.2" max="4" step="0.1" value="0.6" />
+      <input id="cycle" type="range" min="0.2" max="4" step="0.1" value="0.6" />
       <span class="v" id="cycle-v">0.6</span>
       <label>speed</label>
-      <input id="speed"   type="range" min="1" max="30" step="1" value="15" />
+      <input id="speed" type="range" min="1" max="30" step="1" value="15" />
       <span class="v" id="speed-v">15</span>
 
       <div class="section">foot override</div>
@@ -164,17 +104,18 @@
         <button id="zero-btn" style="flex:1">ZERO</button>
         <button id="lowpwr-btn" style="flex:1">LP</button>
         <button id="fpv-btn" style="flex:1">FPV</button>
+        <button id="chase-btn" style="flex:1">3RD</button>
       </div>
 
       <div class="section">fpv sensitivity</div>
       <label>yaw</label>
-      <input id="sens-yaw"   type="range" min="1" max="20" step="1" value="5" />
+      <input id="sens-yaw" type="range" min="1" max="100" step="1" value="5" />
       <span class="v" id="sens-yaw-v">5</span>
       <label>pitch</label>
       <input id="sens-pitch" type="range" min="1" max="20" step="1" value="4" />
       <span class="v" id="sens-pitch-v">4</span>
       <label>roll</label>
-      <input id="sens-roll"  type="range" min="1" max="20" step="1" value="6" />
+      <input id="sens-roll" type="range" min="1" max="20" step="1" value="6" />
       <span class="v" id="sens-roll-v">6</span>
 
       <div class="section">contacts</div>
@@ -187,46 +128,16 @@
         <span class="c" data-leg="rear_right">RR</span>
       </div>
     </div>
-    <style>
-      #contacts .c {
-        padding: 3px 7px; border-radius: 4px;
-        background: #1a1a1a; color: #666;
-        border: 1px solid #333; font-weight: bold;
-        transition: all 0.15s;
-      }
-      #contacts .c.on {
-        background: #0a3a0a; color: #4f4;
-        border-color: #4f4;
-        box-shadow: 0 0 6px rgba(68,255,102,0.3);
-      }
-    </style>
+
+    <!-- Camera feed -->
     <div id="camera" style="display:none; position:absolute; bottom:8px; right:8px;">
       <img id="camera-feed" style="border-radius:4px; max-width:320px; display:block;" />
       <button id="camera-close" style="position:absolute; top:4px; right:4px;
         background:rgba(0,0,0,0.6); color:#ddd; border:none; border-radius:3px;
         cursor:pointer; font-size:14px; padding:2px 6px;">x</button>
     </div>
-    <style>
-      body.fpv #camera {
-        position: fixed !important; top: 0 !important; left: 0 !important;
-        right: 0 !important; bottom: 0 !important; width: 100% !important;
-        height: 100% !important; z-index: 10;
-      }
-      body.fpv #camera img {
-        width: 100% !important; height: 100% !important;
-        max-width: none !important; object-fit: cover; border-radius: 0 !important;
-      }
-      body.fpv #camera button { display: none; }
-      body.fpv canvas {
-        position: fixed !important; bottom: 12px !important; left: 12px !important;
-        width: 280px !important; height: 200px !important; z-index: 20;
-        border-radius: 6px; border: 1px solid #555;
-      }
-      body.fpv #panel { z-index: 30; }
-      body.fpv #info { z-index: 30; }
-      body.fpv #hud  { z-index: 30; }
-      body.fpv #help  { z-index: 30; }
-    </style>
+
+    <!-- Help -->
     <div id="help">
       <kbd>W</kbd><kbd>S</kbd> fwd/back
       <kbd>A</kbd><kbd>D</kbd> strafe
@@ -236,775 +147,6 @@
       <kbd>Esc</kbd> exit FPV
     </div>
 
-    <script type="module">
-      import * as THREE from "three";
-      import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-
-      const info = document.getElementById("info");
-
-      // ─── three.js scene ────────────────────────────────────────────
-      const scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x111111);
-
-      const camera = new THREE.PerspectiveCamera(
-        45, window.innerWidth / window.innerHeight, 0.1, 1000
-      );
-      camera.position.set(40, 40, 40);
-      camera.up.set(0, 0, 1);
-
-      const renderer = new THREE.WebGLRenderer({ antialias: true });
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      renderer.shadowMap.enabled = true;
-      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-      document.body.appendChild(renderer.domElement);
-      window.addEventListener("resize", () => {
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
-      });
-
-      const controls = new OrbitControls(camera, renderer.domElement);
-      controls.target.set(0, 0, 5);
-
-      // ─── lighting ────────────────────────────────────────────────────
-      const ambientLight = new THREE.AmbientLight(0x404050, 1.5);
-      scene.add(ambientLight);
-
-      const dirLight = new THREE.DirectionalLight(0xffffff, 2.0);
-      dirLight.position.set(30, 20, 40);
-      dirLight.castShadow = true;
-      dirLight.shadow.mapSize.set(1024, 1024);
-      dirLight.shadow.camera.left = -40;
-      dirLight.shadow.camera.right = 40;
-      dirLight.shadow.camera.top = 40;
-      dirLight.shadow.camera.bottom = -40;
-      dirLight.shadow.camera.near = 1;
-      dirLight.shadow.camera.far = 100;
-      scene.add(dirLight);
-
-      const fillLight = new THREE.DirectionalLight(0x8888ff, 0.4);
-      fillLight.position.set(-20, -10, 15);
-      scene.add(fillLight);
-
-      // Ground grid + shadow plane.
-      const grid = new THREE.GridHelper(100, 50, 0x444444, 0x222222);
-      grid.rotation.x = Math.PI / 2;     // make grid lie on z=0
-      scene.add(grid);
-      scene.add(new THREE.AxesHelper(8));
-
-      const groundPlane = new THREE.Mesh(
-        new THREE.PlaneGeometry(200, 200),
-        new THREE.ShadowMaterial({ opacity: 0.3 })
-      );
-      groundPlane.position.z = -0.01;
-      groundPlane.receiveShadow = true;
-      scene.add(groundPlane);
-
-      // ─── hexapod model ─────────────────────────────────────────────
-      const LEG_NAMES = [
-        "front_left",  "front_right",
-        "mid_left",    "mid_right",
-        "rear_left",   "rear_right",
-      ];
-
-      const bodyGroup = new THREE.Group();
-      scene.add(bodyGroup);
-
-      // ── materials ──
-      const bodyMat = new THREE.MeshStandardMaterial({
-        color: 0x2a2a2a, metalness: 0.4, roughness: 0.5,
-      });
-      const coxaMat = new THREE.MeshStandardMaterial({
-        color: 0x555555, metalness: 0.3, roughness: 0.6,
-      });
-      const femurMat = new THREE.MeshStandardMaterial({
-        color: 0x444444, metalness: 0.3, roughness: 0.6,
-      });
-      const tibiaMat = new THREE.MeshStandardMaterial({
-        color: 0x333333, metalness: 0.3, roughness: 0.6,
-      });
-      const jointMat = new THREE.MeshStandardMaterial({
-        color: 0x888888, metalness: 0.6, roughness: 0.3,
-      });
-      const footMatOff = new THREE.MeshStandardMaterial({
-        color: 0xff5050, metalness: 0.2, roughness: 0.4,
-      });
-      const footMatOn = new THREE.MeshStandardMaterial({
-        color: 0x44ff66, metalness: 0.2, roughness: 0.4, emissive: 0x114422, emissiveIntensity: 0.5,
-      });
-
-      // ── shared geometries ──
-      // Unit cylinder along Y, centred at origin — we'll position/orient per frame.
-      const segGeo = new THREE.CylinderGeometry(1, 1, 1, 8);
-      const jointGeo = new THREE.SphereGeometry(1, 10, 8);
-      const footGeo  = new THREE.SphereGeometry(1, 12, 8);
-
-      // Body plate — built from the 6 coxa_start points each frame.
-      const bodyMesh = new THREE.Mesh(new THREE.BufferGeometry(), bodyMat);
-      bodyMesh.castShadow = true;
-      bodyGroup.add(bodyMesh);
-
-      // Forward direction indicator — small arrow on top of body.
-      const arrowShape = new THREE.Shape();
-      arrowShape.moveTo(0, 0);
-      arrowShape.lineTo(-1.2, 2);
-      arrowShape.lineTo(1.2, 2);
-      arrowShape.closePath();
-      const arrowGeo = new THREE.ExtrudeGeometry(arrowShape, {
-        depth: 0.3, bevelEnabled: false,
-      });
-      const arrowMat = new THREE.MeshStandardMaterial({
-        color: 0x44aaff, metalness: 0.3, roughness: 0.4,
-      });
-      const arrowMesh = new THREE.Mesh(arrowGeo, arrowMat);
-      arrowMesh.castShadow = true;
-      bodyGroup.add(arrowMesh);
-
-      function makeSeg(mat, radius) {
-        const m = new THREE.Mesh(segGeo, mat);
-        m.castShadow = true;
-        m.userData.radius = radius;
-        bodyGroup.add(m);
-        return m;
-      }
-      function makeJoint(mat, radius) {
-        const m = new THREE.Mesh(jointGeo, mat);
-        m.castShadow = true;
-        m.scale.setScalar(radius);
-        bodyGroup.add(m);
-        return m;
-      }
-
-      // Per-leg solid parts.
-      const legParts = {};
-      const footMarkers = {};
-      for (const name of LEG_NAMES) {
-        const coxa  = makeSeg(coxaMat,  0.6);
-        const femur = makeSeg(femurMat, 0.5);
-        const tibia = makeSeg(tibiaMat, 0.4);
-        const j1 = makeJoint(jointMat, 0.7);
-        const j2 = makeJoint(jointMat, 0.6);
-        const foot = new THREE.Mesh(footGeo, footMatOff);
-        foot.castShadow = true;
-        foot.scale.setScalar(0.5);
-        bodyGroup.add(foot);
-        footMarkers[name] = foot;
-        legParts[name] = { coxa, femur, tibia, j1, j2, foot };
-      }
-
-      // Orient a unit cylinder from point A to point B.
-      const _vA = new THREE.Vector3();
-      const _vB = new THREE.Vector3();
-      const _dir = new THREE.Vector3();
-      const _yAxis = new THREE.Vector3(0, 1, 0);
-      const _quat = new THREE.Quaternion();
-      function positionSeg(mesh, a, b) {
-        _vA.set(a[0], a[1], a[2]);
-        _vB.set(b[0], b[1], b[2]);
-        _dir.subVectors(_vB, _vA);
-        const len = _dir.length();
-        // Midpoint.
-        mesh.position.lerpVectors(_vA, _vB, 0.5);
-        // Quaternion that rotates Y-axis onto the A→B direction.
-        _dir.normalize();
-        _quat.setFromUnitVectors(_yAxis, _dir);
-        mesh.quaternion.copy(_quat);
-        mesh.scale.set(mesh.userData.radius, len, mesh.userData.radius);
-      }
-
-      // ─── support polygons (tripod groups) ──────────────────────────
-      // Tripod gait groups, hardcoded — must match TripodGait.GROUPS in core.
-      const TRIPOD_GROUPS = [
-        { color: 0x4488ff, legs: ["front_right", "mid_left",  "rear_right"] },
-        { color: 0xff8844, legs: ["front_left",  "mid_right", "rear_left"]  },
-      ];
-      const polyMeshes = TRIPOD_GROUPS.map((g) => {
-        const geom = new THREE.BufferGeometry();
-        geom.setAttribute("position", new THREE.BufferAttribute(new Float32Array(3 * 3), 3));
-        geom.setIndex([0, 1, 2]);
-        const mesh = new THREE.Mesh(
-          geom,
-          new THREE.MeshBasicMaterial({
-            color: g.color, transparent: true, opacity: 0.25,
-            side: THREE.DoubleSide, depthWrite: false,
-          })
-        );
-        scene.add(mesh);
-        // edge outline
-        const edgeGeom = new THREE.BufferGeometry();
-        edgeGeom.setAttribute("position", new THREE.BufferAttribute(new Float32Array(4 * 3), 3));
-        const edge = new THREE.Line(edgeGeom, new THREE.LineBasicMaterial({ color: g.color }));
-        scene.add(edge);
-        return { mesh, edge };
-      });
-
-      function updatePolygons(state) {
-        const pose = state.pose;
-        // Use the bodyGroup's full world matrix so the polygons account
-        // for roll/pitch, not just yaw.
-        bodyGroup.updateMatrixWorld();
-        const _v = new THREE.Vector3();
-        const toWorld = (b) => {
-          _v.set(b[0], b[1], b[2] - pose.z);
-          bodyGroup.localToWorld(_v);
-          return [_v.x, _v.y, 0.02];  // project to ground
-        };
-        TRIPOD_GROUPS.forEach((group, i) => {
-          const feetWorld = group.legs.map((name) => toWorld(state.legs[name].foot));
-          // Sort by angle around centroid for non-self-intersecting triangle.
-          const cx = (feetWorld[0][0] + feetWorld[1][0] + feetWorld[2][0]) / 3;
-          const cy = (feetWorld[0][1] + feetWorld[1][1] + feetWorld[2][1]) / 3;
-          feetWorld.sort((a, b) =>
-            Math.atan2(a[1] - cy, a[0] - cx) - Math.atan2(b[1] - cy, b[0] - cx)
-          );
-          const { mesh, edge } = polyMeshes[i];
-          const arr = mesh.geometry.attributes.position.array;
-          for (let k = 0; k < 3; k++) {
-            arr[k * 3 + 0] = feetWorld[k][0];
-            arr[k * 3 + 1] = feetWorld[k][1];
-            arr[k * 3 + 2] = feetWorld[k][2];
-          }
-          mesh.geometry.attributes.position.needsUpdate = true;
-          mesh.geometry.computeBoundingSphere();
-
-          const earr = edge.geometry.attributes.position.array;
-          for (let k = 0; k < 3; k++) {
-            earr[k * 3 + 0] = feetWorld[k][0];
-            earr[k * 3 + 1] = feetWorld[k][1];
-            earr[k * 3 + 2] = feetWorld[k][2];
-          }
-          earr[9] = feetWorld[0][0];
-          earr[10] = feetWorld[0][1];
-          earr[11] = feetWorld[0][2];
-          edge.geometry.attributes.position.needsUpdate = true;
-        });
-      }
-
-      // World-space body trail.
-      const trailMax = 600;
-      const trailGeom = new THREE.BufferGeometry();
-      trailGeom.setAttribute("position", new THREE.BufferAttribute(new Float32Array(trailMax * 3), 3));
-      const trailLine = new THREE.Line(trailGeom, new THREE.LineBasicMaterial({ color: 0x66aaff }));
-      scene.add(trailLine);
-      let trailCount = 0;
-
-      // ─── transform helpers ─────────────────────────────────────────
-      // Body→world: rotate by yaw (about z), then translate by (x, y).
-      function bodyToWorld(p, pose) {
-        const c = Math.cos(pose.yaw), s = Math.sin(pose.yaw);
-        return [
-          pose.x + c * p[0] - s * p[1],
-          pose.y + s * p[0] + c * p[1],
-          p[2],
-        ];
-      }
-
-      // Latest state snapshot — cached so the foot-target dropdown can prefill
-      // its X/Y/Z sliders from the actual current neutral foot position of
-      // whatever leg the user picks.
-      let latestState = null;
-
-      function applyState(state) {
-        latestState = state;
-        const pose = state.pose;
-        bodyGroup.position.set(pose.x, pose.y, pose.z);
-        bodyGroup.rotation.set(pose.roll || 0, pose.pitch || 0, pose.yaw, "ZYX");
-
-        // Body plate — extruded hex from the 6 coxa starts.
-        const bodyVerts = LEG_NAMES.map((name) => {
-          const cs = state.legs[name].coxa_start;
-          return new THREE.Vector2(cs[0], cs[1]);
-        });
-        // Sort by angle around centroid for a clean polygon.
-        const cx = bodyVerts.reduce((s, v) => s + v.x, 0) / 6;
-        const cy = bodyVerts.reduce((s, v) => s + v.y, 0) / 6;
-        bodyVerts.sort((a, b) =>
-          Math.atan2(a.y - cy, a.x - cx) - Math.atan2(b.y - cy, b.x - cx)
-        );
-        const bodyShape = new THREE.Shape(bodyVerts);
-        bodyMesh.geometry.dispose();
-        bodyMesh.geometry = new THREE.ExtrudeGeometry(bodyShape, {
-          depth: 1.5, bevelEnabled: true, bevelThickness: 0.3,
-          bevelSize: 0.3, bevelSegments: 2,
-        });
-        // Centre the extrude on Z, at the coxa mount height in bodyGroup-local coords.
-        const mountZ = state.legs[LEG_NAMES[0]].coxa_start[2] - pose.z;
-        bodyMesh.geometry.translate(0, 0, -0.75);
-        bodyMesh.position.z = mountZ;
-
-        // Forward arrow sits on top of the body plate, pointing +x.
-        arrowMesh.position.set(4, 0, mountZ + 0.8);
-        arrowMesh.rotation.z = Math.PI / 2;  // rotate so arrow tip points +x
-
-        // Each leg as solid cylinder segments.
-        LEG_NAMES.forEach((name) => {
-          const leg = state.legs[name];
-          if (!leg) return;
-          const oz = (p) => [p[0], p[1], p[2] - pose.z];
-          const p0 = oz(leg.coxa_start);
-          const p1 = oz(leg.coxa_end);
-          const p2 = oz(leg.femur_end);
-          const p3 = oz(leg.foot);
-
-          const parts = legParts[name];
-          positionSeg(parts.coxa,  p0, p1);
-          positionSeg(parts.femur, p1, p2);
-          positionSeg(parts.tibia, p2, p3);
-
-          parts.j1.position.set(p1[0], p1[1], p1[2]);
-          parts.j2.position.set(p2[0], p2[1], p2[2]);
-
-          parts.foot.position.set(p3[0], p3[1], p3[2]);
-          parts.foot.material = leg.contact ? footMatOn : footMatOff;
-        });
-
-        updatePolygons(state);
-
-        // Per-leg contact strip — turns green when the firmware reports the
-        // bumper closed for that leg's bit in the feedback frame.
-        document.querySelectorAll("#contacts .c").forEach((el) => {
-          const name = el.dataset.leg;
-          const on = state.legs[name] && state.legs[name].contact;
-          el.classList.toggle("on", !!on);
-        });
-
-        // Trail in world frame.
-        const tarr = trailGeom.attributes.position.array;
-        const idx = (trailCount % trailMax) * 3;
-        tarr[idx + 0] = pose.x;
-        tarr[idx + 1] = pose.y;
-        tarr[idx + 2] = 0;
-        trailCount++;
-        trailGeom.attributes.position.needsUpdate = true;
-        trailGeom.setDrawRange(0, Math.min(trailCount, trailMax));
-
-        // ── HUD updates ──────────────────────────────────────────────
-        // Info bar (minimal).
-        info.textContent =
-          `x=${pose.x.toFixed(1)} y=${pose.y.toFixed(1)}`;
-
-        // Battery.
-        const mv = state.voltage_mv || 0;
-        const batText = document.getElementById("bat-text");
-        const batFill = document.getElementById("bat-fill");
-        const batBox  = document.getElementById("hud-bat");
-        if (mv > 0) {
-          const pct = Math.max(0, Math.min(100, (mv - 6000) / 24));
-          batText.textContent = `${(mv/1000).toFixed(1)}V ${Math.round(pct)}%`;
-          batFill.style.width = Math.max(0, pct * 24 / 100) + "px";
-          const col = pct < 20 ? "#f44" : pct < 50 ? "#fa0" : "#0f0";
-          batFill.style.background = col;
-        } else {
-          batText.textContent = "--";
-          batFill.style.width = "0px";
-        }
-        batBox.classList.toggle("warn", !!state.low_battery);
-        if (state.low_battery) {
-          batText.textContent += " LOW";
-          if (servosOn) {
-            servosOn = false;
-            servoBtn.textContent = "OFF";
-            servoBtn.style.color = "#f44";
-          }
-        }
-
-        // Speed.
-        const spd = Math.hypot(state.twist.vx, state.twist.vy);
-        document.getElementById("speed-val").textContent = spd.toFixed(1);
-
-        // Tilt readout.
-        const rollDeg  = ((pose.roll  || 0) * 180 / Math.PI).toFixed(1);
-        const pitchDeg = ((pose.pitch || 0) * 180 / Math.PI).toFixed(1);
-        document.getElementById("tilt-roll").textContent  = `R ${rollDeg}`;
-        document.getElementById("tilt-pitch").textContent = `P ${pitchDeg}`;
-
-        // Compass strip.
-        updateCompass(pose.yaw);
-
-        // Artificial horizon.
-        drawAHI(pose.roll || 0, pose.pitch || 0);
-      }
-
-      // ─── websocket ─────────────────────────────────────────────────
-      const ws = new WebSocket(`ws://${location.hostname}:8765`);
-      ws.onopen = () => { info.textContent = "connected"; };
-      ws.onclose = () => { info.textContent = "disconnected"; };
-      ws.onmessage = (ev) => {
-        const msg = JSON.parse(ev.data);
-        if (msg.type === "state") applyState(msg.data);
-        if (msg.type === "config" && msg.camera_url) {
-          const url = new URL(msg.camera_url);
-          url.hostname = location.hostname;
-          document.getElementById("camera-feed").src = url.toString();
-          document.getElementById("camera").style.display = "block";
-        }
-      };
-
-      document.getElementById("camera-close").onclick = () => {
-        const cam = document.getElementById("camera");
-        cam.style.display = cam.style.display === "none" ? "block" : "none";
-      };
-
-      // ─── servo controls ───────────────────────────────────────────────
-      let servosOn = false;
-      const servoBtn = document.getElementById("servo-toggle");
-      servoBtn.onclick = () => {
-        servosOn = !servosOn;
-        send({ type: "set_servos", enabled: servosOn });
-        servoBtn.textContent = servosOn ? "ON" : "OFF";
-        servoBtn.style.color = servosOn ? "#4f4" : "#f44";
-      };
-      let zeroOn = false;
-      const zeroBtn = document.getElementById("zero-btn");
-      zeroBtn.onclick = () => {
-        zeroOn = !zeroOn;
-        send({ type: "zero_stance", enabled: zeroOn });
-        zeroBtn.style.color = zeroOn ? "#4f4" : "#ddd";
-      };
-
-      // Low power mode: halve speed + double cycle time.
-      let lowPower = false;
-      const lpBtn = document.getElementById("lowpwr-btn");
-      lpBtn.onclick = () => {
-        lowPower = !lowPower;
-        lpBtn.style.color = lowPower ? "#ff0" : "#ddd";
-        if (lowPower) {
-          speedEl.value = Math.max(1, Math.round(parseFloat(speedEl.value) / 2));
-          speedV.textContent = speedEl.value;
-          const cycleEl = document.getElementById("cycle");
-          cycleEl.value = Math.min(4, (parseFloat(cycleEl.value) * 2).toFixed(1));
-          document.getElementById("cycle-v").textContent = cycleEl.value;
-          cycleEl.dispatchEvent(new Event("input"));
-        }
-      };
-
-      // ─── FPV mode ────────────────────────────────────────────────────
-      let fpvActive = false;
-      let fpvRoll = 0, fpvPitch = 0;
-      const fpvBtn = document.getElementById("fpv-btn");
-      const camDiv = document.getElementById("camera");
-
-      function enterFPV() {
-        fpvActive = true;
-        document.body.classList.add("fpv");
-        camDiv.style.display = "block";
-        fpvBtn.style.color = "#4f4";
-        controls.enabled = false;
-        // Request pointer lock for mouse tilt control.
-        document.body.requestPointerLock();
-      }
-      function exitFPV() {
-        fpvActive = false;
-        document.body.classList.remove("fpv");
-        fpvBtn.style.color = "#ddd";
-        controls.enabled = true;
-        fpvRoll = 0; fpvPitch = 0;
-        send({ type: "set_orientation", roll: 0, pitch: 0 });
-        if (document.pointerLockElement) document.exitPointerLock();
-      }
-      fpvBtn.onclick = () => { fpvActive ? exitFPV() : enterFPV(); };
-      // Exit FPV if pointer lock is released (e.g. user presses Esc).
-      document.addEventListener("pointerlockchange", () => {
-        if (!document.pointerLockElement && fpvActive) exitFPV();
-      });
-
-      function send(obj) {
-        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
-      }
-
-      // ─── input ─────────────────────────────────────────────────────
-      const keys = {};
-      window.addEventListener("keydown", (e) => { keys[e.key.toLowerCase()] = true; pushTwist(); });
-      window.addEventListener("keyup",   (e) => { keys[e.key.toLowerCase()] = false; pushTwist(); });
-
-      function bindSlider(id, type, key) {
-        const el = document.getElementById(id);
-        const v  = document.getElementById(id + "-v");
-        const send_ = () => {
-          v.textContent = el.value;
-          send({ type, [key]: parseFloat(el.value) });
-        };
-        el.addEventListener("input", send_);
-        // push initial values once the socket opens
-        ws.addEventListener("open", send_);
-      }
-      bindSlider("height", "set_height",        "z");
-      bindSlider("step",   "set_step_length",   "length");
-      bindSlider("radius", "set_stance_radius", "radius");
-      bindSlider("lift",   "set_lift_height",   "height");
-      bindSlider("cycle",  "set_cycle_time",    "seconds");
-
-      // ─── foot target manual override ───────────────────────────────
-      // The Robot's set_foot_target is one-shot (clears every tick), so the
-      // UI re-asserts the chosen target at ~30 Hz while a leg is selected.
-      // Switching the dropdown to "off" stops sending and the gait takes
-      // back control of that leg on the next tick.
-      const targetLegEl = document.getElementById("target-leg");
-      const txEl = document.getElementById("tx");
-      const tyEl = document.getElementById("ty");
-      const tzEl = document.getElementById("tz");
-      const txV  = document.getElementById("tx-v");
-      const tyV  = document.getElementById("ty-v");
-      const tzV  = document.getElementById("tz-v");
-      function refreshTargetLabels() {
-        txV.textContent = txEl.value;
-        tyV.textContent = tyEl.value;
-        tzV.textContent = tzEl.value;
-      }
-      [txEl, tyEl, tzEl].forEach(el =>
-        el.addEventListener("input", refreshTargetLabels)
-      );
-      let footTargetTimer = null;
-      function pushFootTarget() {
-        const leg = targetLegEl.value;
-        if (!leg) return;
-        send({
-          type: "set_foot_target",
-          leg,
-          x: parseFloat(txEl.value),
-          y: parseFloat(tyEl.value),
-          z: parseFloat(tzEl.value),
-        });
-      }
-      function clampToSlider(el, v) {
-        const min = parseFloat(el.min);
-        const max = parseFloat(el.max);
-        return Math.max(min, Math.min(max, v));
-      }
-      function prefillFromCurrent(legName) {
-        if (!latestState || !latestState.legs[legName]) return;
-        const foot = latestState.legs[legName].foot; // body frame [x,y,z]
-        // Round to the slider's step (0.5) so the values look clean and the
-        // sliders snap.
-        const snap = (v) => Math.round(v * 2) / 2;
-        txEl.value = clampToSlider(txEl, snap(foot[0]));
-        tyEl.value = clampToSlider(tyEl, snap(foot[1]));
-        tzEl.value = clampToSlider(tzEl, snap(foot[2]));
-        refreshTargetLabels();
-      }
-      targetLegEl.addEventListener("change", () => {
-        if (footTargetTimer) {
-          clearInterval(footTargetTimer);
-          footTargetTimer = null;
-        }
-        if (targetLegEl.value) {
-          // Prefill the sliders with the current foot position so the very
-          // first frame we send is a no-op rather than a teleport.
-          prefillFromCurrent(targetLegEl.value);
-          pushFootTarget();                              // immediate
-          footTargetTimer = setInterval(pushFootTarget, 33);  // ~30 Hz
-        }
-      });
-
-      let fpvYaw = 0;  // accumulated yaw from mouse in FPV
-
-      // Sensitivity slider readouts.
-      const sensYawEl   = document.getElementById("sens-yaw");
-      const sensPitchEl = document.getElementById("sens-pitch");
-      const sensRollEl  = document.getElementById("sens-roll");
-      const sensYawV    = document.getElementById("sens-yaw-v");
-      const sensPitchV  = document.getElementById("sens-pitch-v");
-      const sensRollV   = document.getElementById("sens-roll-v");
-      sensYawEl.oninput   = () => { sensYawV.textContent = sensYawEl.value; };
-      sensPitchEl.oninput = () => { sensPitchV.textContent = sensPitchEl.value; };
-      sensRollEl.oninput  = () => { sensRollV.textContent = sensRollEl.value; };
-
-      // FPV orientation update — runs every frame via the render loop.
-      const ROLL_DECAY = 0.92;  // per-frame decay toward 0 when Q/E released
-      function fpvOrientationTick() {
-        if (!fpvActive) return;
-        const rollDir = (keys["q"] ? 1 : 0) - (keys["e"] ? 1 : 0);
-        const rollSpeed = sensRollEl.value / 10;  // 0.1 .. 2.0
-        if (rollDir !== 0) {
-          // Ramp toward target.
-          fpvRoll += rollDir * rollSpeed * 0.02;
-          fpvRoll = Math.max(-MAX_TILT, Math.min(MAX_TILT, fpvRoll));
-        } else {
-          // Decay back to 0.
-          fpvRoll *= ROLL_DECAY;
-          if (Math.abs(fpvRoll) < 0.001) fpvRoll = 0;
-        }
-        send({ type: "set_orientation", roll: fpvRoll, pitch: fpvPitch });
-      }
-
-      // Speed slider readout.
-      const speedEl = document.getElementById("speed");
-      const speedV  = document.getElementById("speed-v");
-      speedEl.oninput = () => { speedV.textContent = speedEl.value; };
-
-      function pushTwist() {
-        if (keys[" "]) { send({ type: "stop" }); fpvYaw = 0; return; }
-        const spd = parseFloat(speedEl.value);
-        const vx = (keys["w"] ? spd : 0) - (keys["s"] ? spd : 0);
-        const vy = (keys["a"] ? spd : 0) - (keys["d"] ? spd : 0);
-        if (fpvActive) {
-          send({ type: "twist", vx, vy, omega: fpvYaw });
-          fpvYaw = 0;
-        } else {
-          const turnRate = spd * 0.1;
-          const omega = (keys["q"] ? turnRate : 0) - (keys["e"] ? turnRate : 0);
-          send({ type: "twist", vx, vy, omega });
-        }
-      }
-
-      // ─── mouse tilt (Shift + mouse) ─────────────────────────────────
-      const MAX_TILT = Math.PI / 12;  // ±15°
-      let shiftHeld = false;
-
-      window.addEventListener("keydown", (e) => {
-        if (e.key === "Shift" && !shiftHeld) {
-          shiftHeld = true;
-          controls.enabled = false;  // disable orbit while tilting
-        }
-      });
-      window.addEventListener("keyup", (e) => {
-        if (e.key === "Shift") {
-          shiftHeld = false;
-          controls.enabled = true;
-          send({ type: "set_orientation", roll: 0, pitch: 0 });
-        }
-      });
-      window.addEventListener("mousemove", (e) => {
-        if (fpvActive) {
-          // Pointer lock: X → yaw (turn rate), Y → pitch (tilt).
-          const yawSens   = sensYawEl.value / 1000;    // 0.001 .. 0.020
-          const pitchSens = sensPitchEl.value / 2000;  // 0.0005 .. 0.010
-          fpvYaw   = -e.movementX * yawSens;
-          fpvPitch = Math.max(-MAX_TILT, Math.min(MAX_TILT, fpvPitch + e.movementY * pitchSens));
-          send({ type: "twist", vx: 0, vy: 0, omega: fpvYaw });
-          fpvYaw = 0;
-          return;
-        }
-        if (!shiftHeld) return;
-        // Map cursor position to ±MAX_TILT.
-        // X axis → roll (left/right tilt), Y axis → pitch (forward/back tilt).
-        const nx = (e.clientX / window.innerWidth  - 0.5) * 2;  // -1..+1
-        const ny = (e.clientY / window.innerHeight - 0.5) * 2;
-        const roll  = -nx * MAX_TILT;
-        const pitch =  ny * MAX_TILT;
-        send({ type: "set_orientation", roll, pitch });
-      });
-
-      // ─── HUD instruments ────────────────────────────────────────────
-      // Compass strip: scrolling heading tape.
-      const compassStrip = document.getElementById("compass-strip");
-      const COMPASS_LABELS = ["N","","","E","","","S","","","W","",""];
-      // Pre-build the strip content (repeat for seamless scroll).
-      let compassHTML = "";
-      for (let rep = 0; rep < 3; rep++) {
-        for (let i = 0; i < 12; i++) {
-          const deg = i * 30;
-          const lbl = COMPASS_LABELS[i] || deg;
-          compassHTML += `<span style="display:inline-block;width:30px;text-align:center">${lbl}</span>`;
-        }
-      }
-      compassStrip.innerHTML = compassHTML;
-
-      function updateCompass(yaw) {
-        // yaw in radians, convert to degrees 0..360
-        let deg = (-yaw * 180 / Math.PI) % 360;
-        if (deg < 0) deg += 360;
-        // 1 degree = 1px in the strip (30px per 30deg label)
-        const offset = -(deg / 360) * 360 - 360 + 100;
-        compassStrip.style.left = offset + "px";
-      }
-
-      // Artificial Horizon Indicator.
-      const ahiCtx = document.getElementById("ahi-canvas").getContext("2d");
-      function drawAHI(roll, pitch) {
-        const w = 100, h = 100, cx = w/2, cy = h/2, r = 42;
-        const ctx = ahiCtx;
-        ctx.clearRect(0, 0, w, h);
-
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(cx, cy, r, 0, Math.PI * 2);
-        ctx.clip();
-
-        // Sky/ground split, shifted by pitch and rotated by roll.
-        const pitchPx = pitch * 100;  // ~1px per 0.01 rad
-        ctx.translate(cx, cy);
-        ctx.rotate(-roll);
-
-        // Sky.
-        ctx.fillStyle = "#1a3a5a";
-        ctx.fillRect(-r*2, -r*2, r*4, r*2 + pitchPx);
-        // Ground.
-        ctx.fillStyle = "#3a2a1a";
-        ctx.fillRect(-r*2, pitchPx, r*4, r*2);
-        // Horizon line.
-        ctx.strokeStyle = "#0f0";
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(-r, pitchPx);
-        ctx.lineTo(r, pitchPx);
-        ctx.stroke();
-
-        // Pitch ladder (every 10 deg ≈ 0.175 rad).
-        ctx.strokeStyle = "rgba(0,255,0,0.4)";
-        ctx.lineWidth = 0.8;
-        ctx.font = "8px monospace";
-        ctx.fillStyle = "rgba(0,255,0,0.5)";
-        ctx.textAlign = "center";
-        for (let d = -30; d <= 30; d += 10) {
-          if (d === 0) continue;
-          const y = pitchPx - d * (100 / (180/Math.PI));
-          const lw = 12;
-          ctx.beginPath();
-          ctx.moveTo(-lw, y);
-          ctx.lineTo(lw, y);
-          ctx.stroke();
-          ctx.fillText(d + "", lw + 8, y + 3);
-        }
-
-        ctx.restore();
-
-        // Fixed aircraft reference (centre cross).
-        ctx.strokeStyle = "#0f0";
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(cx - 18, cy); ctx.lineTo(cx - 8, cy);
-        ctx.moveTo(cx + 8, cy);  ctx.lineTo(cx + 18, cy);
-        ctx.moveTo(cx, cy - 2);  ctx.lineTo(cx, cy + 2);
-        ctx.stroke();
-
-        // Outer ring.
-        ctx.strokeStyle = "rgba(0,255,0,0.3)";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.arc(cx, cy, r, 0, Math.PI * 2);
-        ctx.stroke();
-
-        // Roll pointer at top.
-        ctx.fillStyle = "#0f0";
-        ctx.save();
-        ctx.translate(cx, cy);
-        ctx.rotate(-roll);
-        ctx.beginPath();
-        ctx.moveTo(0, -r + 1);
-        ctx.lineTo(-4, -r + 7);
-        ctx.lineTo(4, -r + 7);
-        ctx.fill();
-        ctx.restore();
-      }
-
-      // ─── render loop ───────────────────────────────────────────────
-      function tick() {
-        fpvOrientationTick();
-        // Keep the shadow light centred on the robot.
-        dirLight.position.set(
-          bodyGroup.position.x + 30,
-          bodyGroup.position.y + 20,
-          40,
-        );
-        dirLight.target.position.copy(bodyGroup.position);
-        dirLight.target.updateMatrixWorld();
-
-        controls.update();
-        renderer.render(scene, camera);
-        requestAnimationFrame(tick);
-      }
-      tick();
-    </script>
+    <script type="module" src="js/main.js"></script>
   </body>
 </html>
