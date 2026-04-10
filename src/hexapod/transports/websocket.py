@@ -22,8 +22,15 @@ import logging
 import websockets
 from websockets.asyncio.server import ServerConnection, serve
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from ..core.enums import Segment, Side
 from ..robot import Robot
+
+if TYPE_CHECKING:
+    from .camera import MJPEGServer
 
 log = logging.getLogger(__name__)
 
@@ -44,16 +51,24 @@ class WebSocketServer:
         host: str = "127.0.0.1",
         port: int = 8765,
         fps: int = 30,
+        camera: MJPEGServer | None = None,
     ) -> None:
         self.robot = robot
         self.host = host
         self.port = port
         self.fps = fps
+        self.camera = camera
+        self._camera_url: str | None = None
         self._clients: set[ServerConnection] = set()
 
     async def _handler(self, websocket: ServerConnection) -> None:
         self._clients.add(websocket)
         log.info("client connected (%d total)", len(self._clients))
+        if self._camera_url:
+            await websocket.send(json.dumps({
+                "type": "config",
+                "camera_url": self._camera_url,
+            }))
         try:
             async for raw in websocket:
                 try:
@@ -121,9 +136,18 @@ class WebSocketServer:
             await asyncio.sleep(dt)
 
     async def serve(self) -> None:
+        if self.camera:
+            ok = await self.camera.start()
+            if ok:
+                self._camera_url = self.camera.stream_url()
+
         log.info("hexapod ws server on ws://%s:%d", self.host, self.port)
-        async with serve(self._handler, self.host, self.port):
-            await self._broadcast_loop()
+        try:
+            async with serve(self._handler, self.host, self.port):
+                await self._broadcast_loop()
+        finally:
+            if self.camera:
+                await self.camera.stop()
 
     def run(self) -> None:
         logging.basicConfig(level=logging.INFO)

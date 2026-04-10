@@ -28,6 +28,9 @@ gui = [
     "matplotlib>=3.10.8",
     "pyqt6>=6.11.0",
 ]
+camera = [
+    "opencv-python-headless>=4.8",
+]
 
 [dependency-groups]
 dev = [

@@ -45,6 +45,11 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--fps", type=int, default=30)
+    parser.add_argument("--camera-port", type=int, default=8766)
+    parser.add_argument("--camera-device", default=0,
+                        help="Camera index (int) or device path (e.g. /dev/video0).")
+    parser.add_argument("--no-camera", action="store_true",
+                        help="Disable the webcam stream even if opencv is installed.")
     args = parser.parse_args()
 
     hexapod = Hexapod.from_config(CONFIG)
@@ -57,10 +62,29 @@ def main() -> None:
     driver = build_driver(args.device, hexapod)
     robot = Robot(hexapod, gait, driver, cycle_seconds=0.6)
 
+    # Optional camera — lazy-import so server works without opencv.
+    camera = None
+    if not args.no_camera:
+        try:
+            from hexapod.transports.camera import MJPEGServer
+
+            cam_device = args.camera_device
+            try:
+                cam_device = int(cam_device)
+            except (ValueError, TypeError):
+                pass
+            camera = MJPEGServer(
+                host=args.host, port=args.camera_port, device=cam_device,
+            )
+        except ImportError:
+            pass
+
     backend = "sim" if args.device is None else f"hardware ({args.device})"
     print(f"hexapod server: {backend} on ws://{args.host}:{args.port}")
 
-    server = WebSocketServer(robot, host=args.host, port=args.port, fps=args.fps)
+    server = WebSocketServer(
+        robot, host=args.host, port=args.port, fps=args.fps, camera=camera,
+    )
     try:
         server.run()
     finally:
