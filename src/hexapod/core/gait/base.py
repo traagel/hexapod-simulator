@@ -225,7 +225,7 @@ class Gait:
                     current_body = self._swing_target_body.get(key, neutral)
                 self._stance_world[key] = pose.transform(current_body, pivot_z=height)
 
-            if local < 0.5 and key not in self._stance_world:
+            if local < 0.5:
                 # swing — interpolate body-frame, add lift arc
                 target = self._swing_at(leg, local, neutral)
             else:
