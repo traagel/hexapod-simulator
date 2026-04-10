@@ -54,6 +54,7 @@ class RobotState:
     twist: TwistDTO
     legs: dict[str, LegState]
     gait_phase: float
+    voltage_mv: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -76,4 +77,5 @@ class RobotState:
                 for k, v in d["legs"].items()
             },
             gait_phase=d["gait_phase"],
+            voltage_mv=d.get("voltage_mv", 0),
         )

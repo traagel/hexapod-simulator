@@ -488,10 +488,13 @@
         trailGeom.attributes.position.needsUpdate = true;
         trailGeom.setDrawRange(0, Math.min(trailCount, trailMax));
 
+        const mv = state.voltage_mv || 0;
+        const vBat = (mv / 1000).toFixed(2);
         info.textContent =
           `t=${state.t.toFixed(2)}  ` +
           `pose=(${pose.x.toFixed(1)}, ${pose.y.toFixed(1)}, yaw=${pose.yaw.toFixed(2)})  ` +
-          `twist=(${state.twist.vx.toFixed(2)}, ${state.twist.vy.toFixed(2)}, ${state.twist.omega.toFixed(2)})`;
+          `twist=(${state.twist.vx.toFixed(2)}, ${state.twist.vy.toFixed(2)}, ${state.twist.omega.toFixed(2)})` +
+          (mv > 0 ? `  bat=${vBat}V` : "");
       }
 
       // ─── websocket ─────────────────────────────────────────────────

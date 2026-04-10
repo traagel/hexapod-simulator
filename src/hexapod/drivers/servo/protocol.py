@@ -14,8 +14,9 @@ Feedback frame (MCU → host):
     byte 1       contact bits               LSB = front_left, then front_right,
                                              mid_left, mid_right, rear_left,
                                              rear_right
-    byte 2       XOR checksum               over bytes 0..1
-    total        3 bytes   (FB_FRAME_LEN)
+    bytes 2..3   uint16 LE voltage_mv       battery voltage in millivolts
+    byte 4       XOR checksum               over bytes 0..3
+    total        5 bytes   (FB_FRAME_LEN)
 
 Both frames use simple sentinel + XOR rather than COBS so the firmware can
 parse them with a tiny state machine.
@@ -32,7 +33,7 @@ CMD_START = 0xA5
 FB_START = 0x5A
 
 CMD_FRAME_LEN = 1 + NUM_CHANNELS * 2 + 1   # 38
-FB_FRAME_LEN = 1 + 1 + 1                    # 3
+FB_FRAME_LEN = 1 + 1 + 2 + 1                # 5
 
 _NAME_TO_KEY: dict[str, LegKey] = {
     "front_left":  (Segment.FRONT, Side.LEFT),
@@ -65,8 +66,21 @@ def encode_command(pulses_us: list[int]) -> bytes:
     return body + bytes([_xor(body)])
 
 
-def decode_feedback(frame: bytes) -> dict[LegKey, bool]:
-    """Parse a feedback frame into per-leg contact bits."""
+class Feedback:
+    """Parsed feedback frame."""
+    __slots__ = ("contacts", "voltage_mv")
+
+    def __init__(
+        self,
+        contacts: dict[LegKey, bool],
+        voltage_mv: int = 0,
+    ) -> None:
+        self.contacts = contacts
+        self.voltage_mv = voltage_mv
+
+
+def decode_feedback(frame: bytes) -> Feedback:
+    """Parse a feedback frame into contacts + battery voltage."""
     if len(frame) != FB_FRAME_LEN:
         raise ValueError(f"feedback frame must be {FB_FRAME_LEN} bytes")
     if frame[0] != FB_START:
@@ -74,14 +88,18 @@ def decode_feedback(frame: bytes) -> dict[LegKey, bool]:
     if _xor(frame[:-1]) != frame[-1]:
         raise ValueError("feedback checksum mismatch")
     bits = frame[1]
-    return {key: bool((bits >> i) & 1) for i, key in enumerate(CONTACT_ORDER)}
+    contacts = {key: bool((bits >> i) & 1) for i, key in enumerate(CONTACT_ORDER)}
+    voltage_mv = struct.unpack_from("<H", frame, 2)[0]
+    return Feedback(contacts=contacts, voltage_mv=voltage_mv)
 
 
-def encode_feedback(contacts: dict[LegKey, bool]) -> bytes:
+def encode_feedback(
+    contacts: dict[LegKey, bool], voltage_mv: int = 0,
+) -> bytes:
     """Inverse of decode_feedback. Used by tests and any mock-MCU loopback."""
     bits = 0
     for i, key in enumerate(CONTACT_ORDER):
         if contacts.get(key, False):
             bits |= 1 << i
-    body = bytes([FB_START, bits])
+    body = bytes([FB_START, bits]) + struct.pack("<H", voltage_mv & 0xFFFF)
     return body + bytes([_xor(body)])

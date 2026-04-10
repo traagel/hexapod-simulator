@@ -340,6 +340,7 @@ class Robot:
             ),
             legs=legs,
             gait_phase=self._phase,
+            voltage_mv=getattr(self.driver, "voltage_mv", 0),
         )
 
     def subscribe(self, callback: StateCallback) -> Unsubscribe:

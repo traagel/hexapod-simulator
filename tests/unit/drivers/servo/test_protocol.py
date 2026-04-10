@@ -55,12 +55,16 @@ def test_feedback_round_trip_all_off():
     frame = encode_feedback(contacts)
     assert len(frame) == FB_FRAME_LEN
     assert frame[0] == FB_START
-    assert decode_feedback(frame) == contacts
+    fb = decode_feedback(frame)
+    assert fb.contacts == contacts
+    assert fb.voltage_mv == 0
 
 
 def test_feedback_round_trip_alternating():
     contacts = {k: (i % 2 == 0) for i, k in enumerate(CONTACT_ORDER)}
-    assert decode_feedback(encode_feedback(contacts)) == contacts
+    fb = decode_feedback(encode_feedback(contacts, voltage_mv=7600))
+    assert fb.contacts == contacts
+    assert fb.voltage_mv == 7600
 
 
 def test_feedback_all_six_independent_bits():

@@ -33,7 +33,7 @@ static constexpr uint8_t  CMD_START      = 0xA5;
 static constexpr uint8_t  FB_START       = 0x5A;
 static constexpr uint     NUM_CHANNELS   = 18;
 static constexpr uint     CMD_FRAME_LEN  = 1 + NUM_CHANNELS * 2 + 1;  // 38
-static constexpr uint     FB_FRAME_LEN   = 1 + 1 + 1;                 // 3
+static constexpr uint     FB_FRAME_LEN   = 1 + 1 + 2 + 1;             // 5
 
 // ── timing ─────────────────────────────────────────────────────────────────
 static constexpr uint32_t WATCHDOG_MS    = 500;
@@ -179,11 +179,26 @@ static uint8_t read_contacts() {
     return bits;
 }
 
+static uint16_t read_voltage_mv() {
+    mux.select(servo2040::VOLTAGE_SENSE_ADDR);
+    float v = sen_adc.read_voltage() / servo2040::VOLTAGE_GAIN;
+    return (uint16_t)(v * 1000.0f);  // millivolts
+}
+
 static void send_feedback() {
-    uint8_t body[2] = { FB_START, read_contacts() };
-    uint8_t cs = xor_checksum(body, 2);
+    uint8_t contacts = read_contacts();
+    uint16_t mv = read_voltage_mv();
+    uint8_t body[4] = {
+        FB_START,
+        contacts,
+        (uint8_t)(mv & 0xFF),         // voltage LE low
+        (uint8_t)((mv >> 8) & 0xFF),  // voltage LE high
+    };
+    uint8_t cs = xor_checksum(body, 4);
     putchar_raw(body[0]);
     putchar_raw(body[1]);
+    putchar_raw(body[2]);
+    putchar_raw(body[3]);
     putchar_raw(cs);
 }
 

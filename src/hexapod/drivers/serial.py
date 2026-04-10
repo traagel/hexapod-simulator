@@ -103,6 +103,7 @@ class HostSerialDriver:
         self._map = servo_map
         self._rx_buf = bytearray()
         self._latest_contacts: dict[LegKey, bool] | None = None
+        self.voltage_mv: int = 0
 
         # Reconnect/health bookkeeping.
         self._dead = False
@@ -194,11 +195,12 @@ class HostSerialDriver:
                 continue
             frame = bytes(self._rx_buf[:FB_FRAME_LEN])
             try:
-                contacts = decode_feedback(frame)
+                fb = decode_feedback(frame)
             except ValueError:
                 del self._rx_buf[0]
                 continue
-            self._latest_contacts = contacts
+            self._latest_contacts = fb.contacts
+            self.voltage_mv = fb.voltage_mv
             del self._rx_buf[:FB_FRAME_LEN]
 
         return self._latest_contacts
