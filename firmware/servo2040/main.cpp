@@ -39,6 +39,7 @@ static constexpr uint     FB_FRAME_LEN   = 1 + 1 + 1;                 // 3
 static constexpr uint32_t WATCHDOG_MS    = 500;
 static constexpr uint32_t FEEDBACK_MS    = 20;   // 50 Hz feedback
 static constexpr uint32_t SLEW_MS        = 5;    // 200 Hz inner loop
+static constexpr uint32_t STAGGER_MS     = 100;  // delay between enabling each servo
 
 // Max servo slew rate. Derived from the profile in
 // config/servos/ds3235ssg.yaml:
@@ -190,8 +191,10 @@ int main() {
     stdio_init_all();
 
     cluster.init();
-    cluster.enable_all();         // PIO outputs come up at mid pulse
-    seed_pulses(MID_PULSE_US);    // keep slew state coherent with hardware
+    // Do NOT enable servos at boot — wait for the first host command.
+    // This avoids a current spike from all 18 servos jumping to center
+    // simultaneously when the board powers on.
+    seed_pulses(MID_PULSE_US);    // keep slew state coherent for re-arm
 
     // Enable pull-downs on every sensor input. Open inputs read ~0 V; a
     // bumper switch shorting the pin to 3.3 V drives it high.
@@ -203,16 +206,39 @@ int main() {
     absolute_time_t last_slew     = get_absolute_time();
     absolute_time_t next_slew     = make_timeout_time_ms(SLEW_MS);
     absolute_time_t next_feedback = make_timeout_time_ms(FEEDBACK_MS);
-    bool armed = true;
+    bool armed = false;  // start disarmed — first host frame triggers arm
+
+    // Staggered power-on: enable one servo at a time to avoid current spike.
+    uint stagger_next = 0;                 // next channel to enable
+    absolute_time_t stagger_deadline = nil_time;  // when to enable next servo
+    bool staggering = false;
 
     while (true) {
         if (poll_input()) {
             last_frame = get_absolute_time();
             if (!armed) {
-                cluster.enable_all();
+                // Begin staggered arm — seed state, start enabling one by one.
                 seed_pulses(MID_PULSE_US);
                 last_slew = get_absolute_time();
+                stagger_next = 0;
+                stagger_deadline = get_absolute_time();
+                staggering = true;
                 armed = true;
+            }
+        }
+
+        // Stagger: enable one servo per STAGGER_MS until all are up.
+        // Each servo is set to mid-pulse then enabled individually to
+        // spread the current draw across ~1.8 s instead of one spike.
+        if (staggering && absolute_time_diff_us(get_absolute_time(), stagger_deadline) <= 0) {
+            cluster.pulse((uint8_t)stagger_next, MID_PULSE_US, false);
+            cluster.enable((uint8_t)stagger_next, false);
+            cluster.load();
+            stagger_next++;
+            if (stagger_next >= NUM_CHANNELS) {
+                staggering = false;
+            } else {
+                stagger_deadline = make_timeout_time_ms(STAGGER_MS);
             }
         }
 
@@ -224,8 +250,8 @@ int main() {
             armed = false;
         }
 
-        // 200 Hz slew step — only meaningful while armed.
-        if (armed && absolute_time_diff_us(get_absolute_time(), next_slew) <= 0) {
+        // 200 Hz slew step — only after all servos are up.
+        if (armed && !staggering && absolute_time_diff_us(get_absolute_time(), next_slew) <= 0) {
             absolute_time_t now = get_absolute_time();
             float dt_s = (float)absolute_time_diff_us(last_slew, now) / 1e6f;
             last_slew = now;
