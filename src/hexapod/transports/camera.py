@@ -1,9 +1,10 @@
 """MJPEG streaming server — serves webcam frames over HTTP.
 
-Runs in the same asyncio event loop as the WebSocket server.  One background
-task captures frames from the camera (via a thread executor so the blocking
-cv2.read() doesn't stall the loop); each connected HTTP client receives the
-latest JPEG as a multipart/x-mixed-replace stream.
+Runs in the same asyncio event loop as the WebSocket server.  A dedicated
+thread grabs frames as fast as the camera produces them (discarding all but
+the latest), so the stream always shows the most recent image with minimal
+latency.  Each connected HTTP client is woken by an asyncio.Event when a
+new JPEG is ready.
 
     GET /stream  →  multipart MJPEG
     GET /         →  200 OK (health check)
@@ -15,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 
 import cv2
 
@@ -29,7 +31,7 @@ class MJPEGServer:
         host: str = "0.0.0.0",
         port: int = 8766,
         device: int | str = 0,
-        fps: int = 15,
+        fps: int = 30,
         quality: int = 70,
     ) -> None:
         self.host = host
@@ -43,6 +45,8 @@ class MJPEGServer:
         self._frame_event = asyncio.Event()
         self._running = False
         self._server: asyncio.Server | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._thread: threading.Thread | None = None
 
     # ── lifecycle ─────────────────────────────────────────────────────
 
@@ -55,9 +59,17 @@ class MJPEGServer:
             cap.release()
             return False
 
+        # Minimise the internal buffer so .read() returns the latest frame.
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
         self._cap = cap
+        self._loop = loop
         self._running = True
-        asyncio.create_task(self._capture_loop())
+
+        # Dedicated thread grabs frames as fast as the camera delivers them.
+        self._thread = threading.Thread(target=self._capture_thread, daemon=True)
+        self._thread.start()
+
         self._server = await asyncio.start_server(
             self._handle_client, self.host, self.port,
         )
@@ -66,6 +78,8 @@ class MJPEGServer:
 
     async def stop(self) -> None:
         self._running = False
+        if self._thread:
+            self._thread.join(timeout=2)
         if self._server:
             self._server.close()
             await self._server.wait_closed()
@@ -75,21 +89,19 @@ class MJPEGServer:
     def stream_url(self) -> str:
         return f"http://{self.host}:{self.port}/stream"
 
-    # ── capture loop (single producer) ────────────────────────────────
+    # ── capture thread (single producer) ──────────────────────────────
 
-    async def _capture_loop(self) -> None:
-        loop = asyncio.get_running_loop()
-        period = 1.0 / self.fps
+    def _capture_thread(self) -> None:
+        """Runs in a dedicated thread.  Grabs frames at camera rate, encodes
+        JPEG, and signals the asyncio event so HTTP clients wake immediately."""
         encode_params = [cv2.IMWRITE_JPEG_QUALITY, self.quality]
-
         while self._running:
-            ret, frame = await loop.run_in_executor(None, self._cap.read)
-            if ret:
-                _, buf = cv2.imencode(".jpg", frame, encode_params)
-                self._latest_frame = buf.tobytes()
-                self._frame_event.set()
-                self._frame_event.clear()
-            await asyncio.sleep(period)
+            ret, frame = self._cap.read()
+            if not ret:
+                continue
+            _, buf = cv2.imencode(".jpg", frame, encode_params)
+            self._latest_frame = buf.tobytes()
+            self._loop.call_soon_threadsafe(self._frame_event.set)
 
     # ── HTTP handler (one per client) ─────────────────────────────────
 
@@ -124,9 +136,12 @@ class MJPEGServer:
             b"Connection: close\r\n\r\n"
         )
 
-        period = 1.0 / self.fps
+        min_period = 1.0 / self.fps
         try:
             while self._running:
+                # Wait for the capture thread to signal a new frame.
+                self._frame_event.clear()
+                await self._frame_event.wait()
                 frame = self._latest_frame
                 if frame:
                     writer.write(
@@ -136,7 +151,8 @@ class MJPEGServer:
                         + frame + b"\r\n"
                     )
                     await writer.drain()
-                await asyncio.sleep(period)
+                # Cap the send rate so we don't flood slow clients.
+                await asyncio.sleep(min_period)
         except (ConnectionResetError, BrokenPipeError):
             pass
         finally:
