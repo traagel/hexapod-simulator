@@ -841,7 +841,8 @@
           send({ type: "twist", vx, vy, omega: fpvYaw });
           fpvYaw = 0;
         } else {
-          const omega = (keys["q"] ? 1.5 : 0) - (keys["e"] ? 1.5 : 0);
+          const turnRate = spd * 0.1;
+          const omega = (keys["q"] ? turnRate : 0) - (keys["e"] ? turnRate : 0);
           send({ type: "twist", vx, vy, omega });
         }
       }
