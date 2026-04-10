@@ -495,7 +495,7 @@
 
         const mv = state.voltage_mv || 0;
         const vBat = (mv / 1000).toFixed(2);
-        const batStr = mv > 0 ? `  bat=${vBat}V` : "";
+        const batStr = mv > 0 ? `  bat=${vBat}V` : "  bat=--";
         const lowBat = state.low_battery ? "  LOW BATTERY" : "";
         info.textContent =
           `t=${state.t.toFixed(2)}  ` +
