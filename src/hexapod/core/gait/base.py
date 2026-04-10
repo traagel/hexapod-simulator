@@ -85,6 +85,8 @@ class Gait:
     def neutral_position(self, leg: Leg) -> tuple[float, float, float]:
         """Foot rest position on the ground, outward from the coxa mount.
 
+        If ``neutral_overrides`` is set for this leg, return that instead.
+
         When `neutral_radius` is unset, pick a radius that places the foot
         comfortably in the middle of the leg's reachable annulus given the
         body height. The IK workspace in the leg's vertical plane is
@@ -93,6 +95,9 @@ class Gait:
         L1 ≠ L2) and back out the horizontal radius from the body height.
         This stays valid for both equal-length and asymmetric leg geometries.
         """
+        key = (leg.segment, leg.side)
+        if hasattr(self, 'neutral_overrides') and key in self.neutral_overrides:
+            return self.neutral_overrides[key]
         radius = self.neutral_radius
         if radius is None:
             L1 = leg.femur.length
