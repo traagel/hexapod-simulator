@@ -104,8 +104,10 @@ class Robot:
     def set_stance_radius(self, radius: float) -> None:
         """How far feet sit from the coxa mounts in the rest pose."""
         self.gait.neutral_radius = max(0.0, float(radius))
-        # Clear world locks so feet recompute with the new radius.
-        self.gait._stance_world.clear()
+
+    def set_lift_height(self, height: float) -> None:
+        """How high feet lift during swing."""
+        self.gait.lift_height = max(0.0, float(height))
 
     def stop(self) -> None:
         self._pending_twist = TwistDTO(0.0, 0.0, 0.0)

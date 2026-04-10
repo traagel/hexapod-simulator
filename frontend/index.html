@@ -38,6 +38,9 @@
       <label>radius</label>
       <input id="radius"  type="range" min="6"   max="24" step="0.5" value="14" />
       <span class="v" id="radius-v">14</span>
+      <label>lift</label>
+      <input id="lift"    type="range" min="0.5" max="15" step="0.5" value="3" />
+      <span class="v" id="lift-v">3</span>
       <hr style="opacity:0.3;margin:8px 0">
       <label>foot target</label>
       <select id="target-leg" style="display:block;width:100%;margin-bottom:4px">
@@ -578,6 +581,7 @@
       bindSlider("height", "set_height",        "z");
       bindSlider("step",   "set_step_length",   "length");
       bindSlider("radius", "set_stance_radius", "radius");
+      bindSlider("lift",   "set_lift_height",   "height");
 
       // ─── foot target manual override ───────────────────────────────
       // The Robot's set_foot_target is one-shot (clears every tick), so the
