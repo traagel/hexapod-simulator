@@ -108,6 +108,8 @@ class WebSocketServer:
             self.robot.set_stance_radius(float(msg.get("radius", 9.8)))
         elif kind == "set_lift_height":
             self.robot.set_lift_height(float(msg.get("height", 3.0)))
+        elif kind == "set_cycle_time":
+            self.robot.set_cycle_time(float(msg.get("seconds", 0.6)))
         elif kind == "set_orientation":
             self.robot.set_body_orientation(
                 float(msg.get("roll", 0.0)),

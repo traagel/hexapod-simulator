@@ -109,6 +109,11 @@ class Robot:
         """How high feet lift during swing."""
         self.gait.lift_height = max(0.0, float(height))
 
+    def set_cycle_time(self, seconds: float) -> None:
+        """Duration of one full gait cycle."""
+        self.cycle_seconds = max(0.2, float(seconds))
+        self._apply_twist(self._commanded_twist)
+
     def stop(self) -> None:
         self._pending_twist = TwistDTO(0.0, 0.0, 0.0)
         self._stopped = True
