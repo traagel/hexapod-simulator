@@ -232,12 +232,16 @@ class Robot:
         #    has no active plan so legs don't keep cycling swing↔stance
         #    and re-locking at slightly different positions each time.
         if self._kick_pending:
-            # Reset the gait so the very next targets() call sees a fresh
-            # swing-start for group 0 and (after the swing-end check) the
-            # other group's stance is locked at its current world position.
+            # Reset the gait phase and seed _prev_local so boundary
+            # detection fires immediately on the next targets() call.
+            # Seeding to 1.0 means "just before wrap" — at phase ~0,
+            # group 0 sees prev=1.0 → local=0 which crosses the
+            # swing-start boundary and latches the delta right away.
             self._phase = 0.0
-            self.gait._prev_local.clear()
             self.gait._latched_delta.clear()
+            for leg in self.hexapod.legs:
+                key = (leg.segment, leg.side)
+                self.gait._prev_local[key] = 1.0
             self._kick_pending = False
         elif self.gait.is_active or self._has_twist():
             self._phase = (self._phase + dt / self.cycle_seconds) % 1.0
