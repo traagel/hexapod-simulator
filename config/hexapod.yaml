@@ -27,7 +27,7 @@ mounts:
   # Body-frame (x, y) of the LEFT-side coxa pivot. The right-side mount is
   # mirrored to (x, -y) by the loader. Measure from the body's geometric
   # centre to the centre of the coxa pivot bearing on the actual hardware.
-  front: [6.0, 6.0]
+  front: [6.0, 4.0]
   mid:   [0.0, 5.0]
   rear:  [-6.0, 4.0]
 

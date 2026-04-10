@@ -33,7 +33,7 @@
       <input id="height"  type="range" min="2"   max="18" step="0.5" value="12" />
       <span class="v" id="height-v">12</span>
       <label>step</label>
-      <input id="step"    type="range" min="0.5" max="40" step="0.5" value="10" />
+      <input id="step"    type="range" min="0.5" max="200" step="0.5" value="10" />
       <span class="v" id="step-v">10</span>
       <label>radius</label>
       <input id="radius"  type="range" min="6"   max="24" step="0.5" value="14" />
@@ -112,6 +112,8 @@
 
       const renderer = new THREE.WebGLRenderer({ antialias: true });
       renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       document.body.appendChild(renderer.domElement);
       window.addEventListener("resize", () => {
         camera.aspect = window.innerWidth / window.innerHeight;
@@ -122,11 +124,39 @@
       const controls = new OrbitControls(camera, renderer.domElement);
       controls.target.set(0, 0, 5);
 
-      // Ground grid + axes.
+      // ─── lighting ────────────────────────────────────────────────────
+      const ambientLight = new THREE.AmbientLight(0x404050, 1.5);
+      scene.add(ambientLight);
+
+      const dirLight = new THREE.DirectionalLight(0xffffff, 2.0);
+      dirLight.position.set(30, 20, 40);
+      dirLight.castShadow = true;
+      dirLight.shadow.mapSize.set(1024, 1024);
+      dirLight.shadow.camera.left = -40;
+      dirLight.shadow.camera.right = 40;
+      dirLight.shadow.camera.top = 40;
+      dirLight.shadow.camera.bottom = -40;
+      dirLight.shadow.camera.near = 1;
+      dirLight.shadow.camera.far = 100;
+      scene.add(dirLight);
+
+      const fillLight = new THREE.DirectionalLight(0x8888ff, 0.4);
+      fillLight.position.set(-20, -10, 15);
+      scene.add(fillLight);
+
+      // Ground grid + shadow plane.
       const grid = new THREE.GridHelper(100, 50, 0x444444, 0x222222);
       grid.rotation.x = Math.PI / 2;     // make grid lie on z=0
       scene.add(grid);
       scene.add(new THREE.AxesHelper(8));
+
+      const groundPlane = new THREE.Mesh(
+        new THREE.PlaneGeometry(200, 200),
+        new THREE.ShadowMaterial({ opacity: 0.3 })
+      );
+      groundPlane.position.z = -0.01;
+      groundPlane.receiveShadow = true;
+      scene.add(groundPlane);
 
       // ─── hexapod model ─────────────────────────────────────────────
       const LEG_NAMES = [
@@ -138,29 +168,106 @@
       const bodyGroup = new THREE.Group();
       scene.add(bodyGroup);
 
-      // Body plate (hex outline through the 6 coxa starts).
-      const bodyGeom = new THREE.BufferGeometry();
-      bodyGeom.setAttribute("position", new THREE.BufferAttribute(new Float32Array(7 * 3), 3));
-      const bodyLine = new THREE.LineLoop(bodyGeom, new THREE.LineBasicMaterial({ color: 0xffffff }));
-      bodyGroup.add(bodyLine);
+      // ── materials ──
+      const bodyMat = new THREE.MeshStandardMaterial({
+        color: 0x2a2a2a, metalness: 0.4, roughness: 0.5,
+      });
+      const coxaMat = new THREE.MeshStandardMaterial({
+        color: 0x555555, metalness: 0.3, roughness: 0.6,
+      });
+      const femurMat = new THREE.MeshStandardMaterial({
+        color: 0x444444, metalness: 0.3, roughness: 0.6,
+      });
+      const tibiaMat = new THREE.MeshStandardMaterial({
+        color: 0x333333, metalness: 0.3, roughness: 0.6,
+      });
+      const jointMat = new THREE.MeshStandardMaterial({
+        color: 0x888888, metalness: 0.6, roughness: 0.3,
+      });
+      const footMatOff = new THREE.MeshStandardMaterial({
+        color: 0xff5050, metalness: 0.2, roughness: 0.4,
+      });
+      const footMatOn = new THREE.MeshStandardMaterial({
+        color: 0x44ff66, metalness: 0.2, roughness: 0.4, emissive: 0x114422, emissiveIntensity: 0.5,
+      });
 
-      // One line per leg (4 points: coxa.start, coxa.end, femur.end, foot).
-      const legLines = {};
+      // ── shared geometries ──
+      // Unit cylinder along Y, centred at origin — we'll position/orient per frame.
+      const segGeo = new THREE.CylinderGeometry(1, 1, 1, 8);
+      const jointGeo = new THREE.SphereGeometry(1, 10, 8);
+      const footGeo  = new THREE.SphereGeometry(1, 12, 8);
+
+      // Body plate — built from the 6 coxa_start points each frame.
+      const bodyMesh = new THREE.Mesh(new THREE.BufferGeometry(), bodyMat);
+      bodyMesh.castShadow = true;
+      bodyGroup.add(bodyMesh);
+
+      // Forward direction indicator — small arrow on top of body.
+      const arrowShape = new THREE.Shape();
+      arrowShape.moveTo(0, 0);
+      arrowShape.lineTo(-1.2, 2);
+      arrowShape.lineTo(1.2, 2);
+      arrowShape.closePath();
+      const arrowGeo = new THREE.ExtrudeGeometry(arrowShape, {
+        depth: 0.3, bevelEnabled: false,
+      });
+      const arrowMat = new THREE.MeshStandardMaterial({
+        color: 0x44aaff, metalness: 0.3, roughness: 0.4,
+      });
+      const arrowMesh = new THREE.Mesh(arrowGeo, arrowMat);
+      arrowMesh.castShadow = true;
+      bodyGroup.add(arrowMesh);
+
+      function makeSeg(mat, radius) {
+        const m = new THREE.Mesh(segGeo, mat);
+        m.castShadow = true;
+        m.userData.radius = radius;
+        bodyGroup.add(m);
+        return m;
+      }
+      function makeJoint(mat, radius) {
+        const m = new THREE.Mesh(jointGeo, mat);
+        m.castShadow = true;
+        m.scale.setScalar(radius);
+        bodyGroup.add(m);
+        return m;
+      }
+
+      // Per-leg solid parts.
+      const legParts = {};
       const footMarkers = {};
       for (const name of LEG_NAMES) {
-        const g = new THREE.BufferGeometry();
-        g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(4 * 3), 3));
-        const line = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xff5050, linewidth: 2 }));
-        bodyGroup.add(line);
-        legLines[name] = line;
+        const coxa  = makeSeg(coxaMat,  0.6);
+        const femur = makeSeg(femurMat, 0.5);
+        const tibia = makeSeg(tibiaMat, 0.4);
+        const j1 = makeJoint(jointMat, 0.7);
+        const j2 = makeJoint(jointMat, 0.6);
+        const foot = new THREE.Mesh(footGeo, footMatOff);
+        foot.castShadow = true;
+        foot.scale.setScalar(0.5);
+        bodyGroup.add(foot);
+        footMarkers[name] = foot;
+        legParts[name] = { coxa, femur, tibia, j1, j2, foot };
+      }
 
-        const marker = new THREE.Mesh(
-          new THREE.SphereGeometry(0.4, 12, 8),
-          new THREE.MeshBasicMaterial({ color: 0xff5050 })
-        );
-        marker.userData.material = marker.material;
-        bodyGroup.add(marker);
-        footMarkers[name] = marker;
+      // Orient a unit cylinder from point A to point B.
+      const _vA = new THREE.Vector3();
+      const _vB = new THREE.Vector3();
+      const _dir = new THREE.Vector3();
+      const _yAxis = new THREE.Vector3(0, 1, 0);
+      const _quat = new THREE.Quaternion();
+      function positionSeg(mesh, a, b) {
+        _vA.set(a[0], a[1], a[2]);
+        _vB.set(b[0], b[1], b[2]);
+        _dir.subVectors(_vB, _vA);
+        const len = _dir.length();
+        // Midpoint.
+        mesh.position.lerpVectors(_vA, _vB, 0.5);
+        // Quaternion that rotates Y-axis onto the A→B direction.
+        _dir.normalize();
+        _quat.setFromUnitVectors(_yAxis, _dir);
+        mesh.quaternion.copy(_quat);
+        mesh.scale.set(mesh.userData.radius, len, mesh.userData.radius);
       }
 
       // ─── support polygons (tripod groups) ──────────────────────────
@@ -247,21 +354,6 @@
         ];
       }
 
-      // The frontend doesn't have FK — it relies on the joint positions implied
-      // by the foot position only. We approximate intermediate joints by drawing
-      // a straight line coxa_start -> foot. (Good enough as a first pass; we
-      // can stream coxa.end / femur.end too if we want jointed legs.)
-      function setLine(line, points) {
-        const arr = line.geometry.attributes.position.array;
-        for (let i = 0; i < points.length; i++) {
-          arr[i * 3 + 0] = points[i][0];
-          arr[i * 3 + 1] = points[i][1];
-          arr[i * 3 + 2] = points[i][2];
-        }
-        line.geometry.attributes.position.needsUpdate = true;
-        line.geometry.setDrawRange(0, points.length);
-      }
-
       // Latest state snapshot — cached so the foot-target dropdown can prefill
       // its X/Y/Z sliders from the actual current neutral foot position of
       // whatever leg the user picks.
@@ -273,33 +365,52 @@
         bodyGroup.position.set(pose.x, pose.y, pose.z);
         bodyGroup.rotation.z = pose.yaw;
 
-        // Body outline = the 6 coxa starts in body frame.
-        const arr = bodyLine.geometry.attributes.position.array;
-        LEG_NAMES.forEach((name, i) => {
+        // Body plate — extruded hex from the 6 coxa starts.
+        const bodyVerts = LEG_NAMES.map((name) => {
           const cs = state.legs[name].coxa_start;
-          arr[i * 3 + 0] = cs[0];
-          arr[i * 3 + 1] = cs[1];
-          arr[i * 3 + 2] = cs[2] - pose.z;   // bodyGroup is positioned at pose.z
+          return new THREE.Vector2(cs[0], cs[1]);
         });
-        arr[18] = arr[0]; arr[19] = arr[1]; arr[20] = arr[2];
-        bodyLine.geometry.attributes.position.needsUpdate = true;
+        // Sort by angle around centroid for a clean polygon.
+        const cx = bodyVerts.reduce((s, v) => s + v.x, 0) / 6;
+        const cy = bodyVerts.reduce((s, v) => s + v.y, 0) / 6;
+        bodyVerts.sort((a, b) =>
+          Math.atan2(a.y - cy, a.x - cx) - Math.atan2(b.y - cy, b.x - cx)
+        );
+        const bodyShape = new THREE.Shape(bodyVerts);
+        bodyMesh.geometry.dispose();
+        bodyMesh.geometry = new THREE.ExtrudeGeometry(bodyShape, {
+          depth: 1.5, bevelEnabled: true, bevelThickness: 0.3,
+          bevelSize: 0.3, bevelSegments: 2,
+        });
+        // Centre the extrude on Z, at the coxa mount height in bodyGroup-local coords.
+        const mountZ = state.legs[LEG_NAMES[0]].coxa_start[2] - pose.z;
+        bodyMesh.geometry.translate(0, 0, -0.75);
+        bodyMesh.position.z = mountZ;
 
-        // Each leg as a real jointed chain. All in body frame; bodyGroup
-        // carries the world transform.
+        // Forward arrow sits on top of the body plate, pointing +x.
+        arrowMesh.position.set(4, 0, mountZ + 0.8);
+        arrowMesh.rotation.z = Math.PI / 2;  // rotate so arrow tip points +x
+
+        // Each leg as solid cylinder segments.
         LEG_NAMES.forEach((name) => {
           const leg = state.legs[name];
           if (!leg) return;
-          const offsetZ = (p) => [p[0], p[1], p[2] - pose.z];
-          const pts = [
-            offsetZ(leg.coxa_start),
-            offsetZ(leg.coxa_end),
-            offsetZ(leg.femur_end),
-            offsetZ(leg.foot),
-          ];
-          setLine(legLines[name], pts);
-          const m = footMarkers[name];
-          m.position.set(pts[3][0], pts[3][1], pts[3][2]);
-          m.material.color.setHex(leg.contact ? 0x44ff66 : 0xff5050);
+          const oz = (p) => [p[0], p[1], p[2] - pose.z];
+          const p0 = oz(leg.coxa_start);
+          const p1 = oz(leg.coxa_end);
+          const p2 = oz(leg.femur_end);
+          const p3 = oz(leg.foot);
+
+          const parts = legParts[name];
+          positionSeg(parts.coxa,  p0, p1);
+          positionSeg(parts.femur, p1, p2);
+          positionSeg(parts.tibia, p2, p3);
+
+          parts.j1.position.set(p1[0], p1[1], p1[2]);
+          parts.j2.position.set(p2[0], p2[1], p2[2]);
+
+          parts.foot.position.set(p3[0], p3[1], p3[2]);
+          parts.foot.material = leg.contact ? footMatOn : footMatOff;
         });
 
         updatePolygons(state);
@@ -436,14 +547,23 @@
 
       function pushTwist() {
         if (keys[" "]) { send({ type: "stop" }); return; }
-        const vx = (keys["w"] ? 2 : 0) - (keys["s"] ? 2 : 0);
-        const vy = (keys["a"] ? 2 : 0) - (keys["d"] ? 2 : 0);
-        const omega = (keys["q"] ? 0.6 : 0) - (keys["e"] ? 0.6 : 0);
+        const vx = (keys["w"] ? 15 : 0) - (keys["s"] ? 15 : 0);
+        const vy = (keys["a"] ? 15 : 0) - (keys["d"] ? 15 : 0);
+        const omega = (keys["q"] ? 1.5 : 0) - (keys["e"] ? 1.5 : 0);
         send({ type: "twist", vx, vy, omega });
       }
 
       // ─── render loop ───────────────────────────────────────────────
       function tick() {
+        // Keep the shadow light centred on the robot.
+        dirLight.position.set(
+          bodyGroup.position.x + 30,
+          bodyGroup.position.y + 20,
+          40,
+        );
+        dirLight.target.position.copy(bodyGroup.position);
+        dirLight.target.updateMatrixWorld();
+
         controls.update();
         renderer.render(scene, camera);
         requestAnimationFrame(tick);
