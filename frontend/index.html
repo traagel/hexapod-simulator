@@ -31,15 +31,49 @@
       }
       #panel button:hover { background: #333; border-color: #666; }
       kbd { background: #333; padding: 1px 5px; border-radius: 3px; font-size: 10px; }
-      #battery { position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
-                 padding: 6px 14px; background: rgba(0,0,0,0.65); border-radius: 6px;
-                 font: 13px monospace; backdrop-filter: blur(4px); text-align: center; }
-      #battery .bar { display: inline-block; width: 40px; height: 12px; border: 1px solid #666;
-                      border-radius: 2px; vertical-align: middle; margin-left: 6px;
-                      position: relative; overflow: hidden; }
-      #battery .bar::after { content: ''; position: absolute; right: -3px; top: 3px;
-                             width: 3px; height: 6px; background: #666; border-radius: 0 1px 1px 0; }
-      #battery .fill { height: 100%; transition: width 0.3s, background 0.3s; }
+
+      /* ── HUD overlay ─────────────────────────────────────────────── */
+      #hud { position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+             pointer-events: none; z-index: 5; }
+      #hud * { pointer-events: none; }
+      .hud-box { position: absolute; font: 12px monospace; color: #0f0;
+                 text-shadow: 0 0 4px rgba(0,255,0,0.4); }
+
+      /* Battery — top right */
+      #hud-bat { top: 12px; right: 200px; display: flex; align-items: center; gap: 6px; }
+      #hud-bat .icon { width: 28px; height: 14px; border: 1.5px solid #0f0; border-radius: 2px;
+                       position: relative; }
+      #hud-bat .icon::after { content: ''; position: absolute; right: -5px; top: 3px;
+                              width: 3px; height: 6px; background: #0f0; border-radius: 0 1px 1px 0; }
+      #hud-bat .fill { position: absolute; left: 1px; top: 1px; bottom: 1px;
+                       background: #0f0; transition: width 0.3s; }
+      #hud-bat.warn { color: #f44; text-shadow: 0 0 6px rgba(255,0,0,0.5); }
+      #hud-bat.warn .icon { border-color: #f44; }
+      #hud-bat.warn .icon::after { background: #f44; }
+      #hud-bat.warn .fill { background: #f44; }
+
+      /* Attitude indicator — bottom centre */
+      #hud-ahi { bottom: 50px; left: 50%; transform: translateX(-50%); }
+      #hud-ahi canvas { border: 1px solid rgba(0,255,0,0.3); border-radius: 50%; }
+
+      /* Compass — top centre */
+      #hud-compass { top: 12px; left: 50%; transform: translateX(-50%);
+                     overflow: hidden; width: 200px; height: 24px;
+                     border: 1px solid rgba(0,255,0,0.3); border-radius: 4px;
+                     background: rgba(0,0,0,0.4); }
+      #hud-compass .strip { position: absolute; top: 0; height: 100%;
+                            white-space: nowrap; font: 11px monospace; color: #0f0;
+                            line-height: 24px; }
+      #hud-compass .caret { position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+                            width: 0; height: 0; border-left: 5px solid transparent;
+                            border-right: 5px solid transparent; border-top: 6px solid #0f0; }
+
+      /* Speed — left centre */
+      #hud-speed { left: 12px; top: 50%; transform: translateY(-50%);
+                   text-align: right; line-height: 1.6; }
+
+      /* Tilt readout — right of AHI */
+      #hud-tilt { bottom: 50px; left: 50%; margin-left: 60px; line-height: 1.6; }
     </style>
     <script type="importmap">
       {
@@ -52,7 +86,32 @@
   </head>
   <body>
     <div id="info">connecting...</div>
-    <div id="battery"><span id="bat-text">bat --</span><span class="bar"><span class="fill" id="bat-fill"></span></span></div>
+    <div id="hud">
+      <!-- Battery -->
+      <div id="hud-bat" class="hud-box">
+        <div class="icon"><div class="fill" id="bat-fill"></div></div>
+        <span id="bat-text">--</span>
+      </div>
+      <!-- Compass strip -->
+      <div id="hud-compass" class="hud-box">
+        <div class="strip" id="compass-strip"></div>
+        <div class="caret"></div>
+      </div>
+      <!-- Speed -->
+      <div id="hud-speed" class="hud-box">
+        <div id="speed-val">0.0</div>
+        <div style="font-size:9px;opacity:0.6">SPD</div>
+      </div>
+      <!-- Artificial horizon -->
+      <div id="hud-ahi" class="hud-box">
+        <canvas id="ahi-canvas" width="100" height="100"></canvas>
+      </div>
+      <!-- Tilt readout -->
+      <div id="hud-tilt" class="hud-box">
+        <div id="tilt-roll">R 0.0</div>
+        <div id="tilt-pitch">P 0.0</div>
+      </div>
+    </div>
     <div id="panel">
       <div class="section">body</div>
       <label>height</label>
@@ -164,8 +223,8 @@
         border-radius: 6px; border: 1px solid #555;
       }
       body.fpv #panel { z-index: 30; }
-      body.fpv #info    { z-index: 30; }
-      body.fpv #battery { z-index: 30; }
+      body.fpv #info { z-index: 30; }
+      body.fpv #hud  { z-index: 30; }
       body.fpv #help  { z-index: 30; }
     </style>
     <div id="help">
@@ -519,36 +578,51 @@
         trailGeom.attributes.position.needsUpdate = true;
         trailGeom.setDrawRange(0, Math.min(trailCount, trailMax));
 
-        // Info bar.
+        // ── HUD updates ──────────────────────────────────────────────
+        // Info bar (minimal).
         info.textContent =
-          `pose=(${pose.x.toFixed(1)}, ${pose.y.toFixed(1)}, yaw=${pose.yaw.toFixed(2)})  ` +
-          `twist=(${state.twist.vx.toFixed(1)}, ${state.twist.vy.toFixed(1)}, ${state.twist.omega.toFixed(2)})`;
+          `x=${pose.x.toFixed(1)} y=${pose.y.toFixed(1)}`;
 
-        // Battery gauge (top centre).
+        // Battery.
         const mv = state.voltage_mv || 0;
         const batText = document.getElementById("bat-text");
         const batFill = document.getElementById("bat-fill");
-        const batDiv  = document.getElementById("battery");
+        const batBox  = document.getElementById("hud-bat");
         if (mv > 0) {
-          const vBat = (mv / 1000).toFixed(1);
-          // Map ~6.0V (empty) to 0%, ~8.4V (full 2S) to 100%.
           const pct = Math.max(0, Math.min(100, (mv - 6000) / 24));
-          batText.textContent = `${vBat}V`;
-          batFill.style.width = pct + "%";
-          batFill.style.background = pct < 20 ? "#f44" : pct < 50 ? "#fa0" : "#4c4";
+          batText.textContent = `${(mv/1000).toFixed(1)}V ${Math.round(pct)}%`;
+          batFill.style.width = Math.max(0, pct * 24 / 100) + "px";
+          const col = pct < 20 ? "#f44" : pct < 50 ? "#fa0" : "#0f0";
+          batFill.style.background = col;
         } else {
-          batText.textContent = "bat --";
-          batFill.style.width = "0%";
+          batText.textContent = "--";
+          batFill.style.width = "0px";
         }
+        batBox.classList.toggle("warn", !!state.low_battery);
         if (state.low_battery) {
-          batDiv.style.color = "#f44";
           batText.textContent += " LOW";
-          servosOn = false;
-          servoBtn.textContent = "OFF";
-          servoBtn.style.color = "#f44";
-        } else {
-          batDiv.style.color = "#ddd";
+          if (servosOn) {
+            servosOn = false;
+            servoBtn.textContent = "OFF";
+            servoBtn.style.color = "#f44";
+          }
         }
+
+        // Speed.
+        const spd = Math.hypot(state.twist.vx, state.twist.vy);
+        document.getElementById("speed-val").textContent = spd.toFixed(1);
+
+        // Tilt readout.
+        const rollDeg  = ((pose.roll  || 0) * 180 / Math.PI).toFixed(1);
+        const pitchDeg = ((pose.pitch || 0) * 180 / Math.PI).toFixed(1);
+        document.getElementById("tilt-roll").textContent  = `R ${rollDeg}`;
+        document.getElementById("tilt-pitch").textContent = `P ${pitchDeg}`;
+
+        // Compass strip.
+        updateCompass(pose.yaw);
+
+        // Artificial horizon.
+        drawAHI(pose.roll || 0, pose.pitch || 0);
       }
 
       // ─── websocket ─────────────────────────────────────────────────
@@ -809,6 +883,109 @@
         const pitch =  ny * MAX_TILT;
         send({ type: "set_orientation", roll, pitch });
       });
+
+      // ─── HUD instruments ────────────────────────────────────────────
+      // Compass strip: scrolling heading tape.
+      const compassStrip = document.getElementById("compass-strip");
+      const COMPASS_LABELS = ["N","","","E","","","S","","","W","",""];
+      // Pre-build the strip content (repeat for seamless scroll).
+      let compassHTML = "";
+      for (let rep = 0; rep < 3; rep++) {
+        for (let i = 0; i < 12; i++) {
+          const deg = i * 30;
+          const lbl = COMPASS_LABELS[i] || deg;
+          compassHTML += `<span style="display:inline-block;width:30px;text-align:center">${lbl}</span>`;
+        }
+      }
+      compassStrip.innerHTML = compassHTML;
+
+      function updateCompass(yaw) {
+        // yaw in radians, convert to degrees 0..360
+        let deg = (-yaw * 180 / Math.PI) % 360;
+        if (deg < 0) deg += 360;
+        // 1 degree = 1px in the strip (30px per 30deg label)
+        const offset = -(deg / 360) * 360 - 360 + 100;
+        compassStrip.style.left = offset + "px";
+      }
+
+      // Artificial Horizon Indicator.
+      const ahiCtx = document.getElementById("ahi-canvas").getContext("2d");
+      function drawAHI(roll, pitch) {
+        const w = 100, h = 100, cx = w/2, cy = h/2, r = 42;
+        const ctx = ahiCtx;
+        ctx.clearRect(0, 0, w, h);
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.clip();
+
+        // Sky/ground split, shifted by pitch and rotated by roll.
+        const pitchPx = pitch * 100;  // ~1px per 0.01 rad
+        ctx.translate(cx, cy);
+        ctx.rotate(-roll);
+
+        // Sky.
+        ctx.fillStyle = "#1a3a5a";
+        ctx.fillRect(-r*2, -r*2, r*4, r*2 + pitchPx);
+        // Ground.
+        ctx.fillStyle = "#3a2a1a";
+        ctx.fillRect(-r*2, pitchPx, r*4, r*2);
+        // Horizon line.
+        ctx.strokeStyle = "#0f0";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(-r, pitchPx);
+        ctx.lineTo(r, pitchPx);
+        ctx.stroke();
+
+        // Pitch ladder (every 10 deg ≈ 0.175 rad).
+        ctx.strokeStyle = "rgba(0,255,0,0.4)";
+        ctx.lineWidth = 0.8;
+        ctx.font = "8px monospace";
+        ctx.fillStyle = "rgba(0,255,0,0.5)";
+        ctx.textAlign = "center";
+        for (let d = -30; d <= 30; d += 10) {
+          if (d === 0) continue;
+          const y = pitchPx - d * (100 / (180/Math.PI));
+          const lw = 12;
+          ctx.beginPath();
+          ctx.moveTo(-lw, y);
+          ctx.lineTo(lw, y);
+          ctx.stroke();
+          ctx.fillText(d + "", lw + 8, y + 3);
+        }
+
+        ctx.restore();
+
+        // Fixed aircraft reference (centre cross).
+        ctx.strokeStyle = "#0f0";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(cx - 18, cy); ctx.lineTo(cx - 8, cy);
+        ctx.moveTo(cx + 8, cy);  ctx.lineTo(cx + 18, cy);
+        ctx.moveTo(cx, cy - 2);  ctx.lineTo(cx, cy + 2);
+        ctx.stroke();
+
+        // Outer ring.
+        ctx.strokeStyle = "rgba(0,255,0,0.3)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Roll pointer at top.
+        ctx.fillStyle = "#0f0";
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(-roll);
+        ctx.beginPath();
+        ctx.moveTo(0, -r + 1);
+        ctx.lineTo(-4, -r + 7);
+        ctx.lineTo(4, -r + 7);
+        ctx.fill();
+        ctx.restore();
+      }
 
       // ─── render loop ───────────────────────────────────────────────
       function tick() {
