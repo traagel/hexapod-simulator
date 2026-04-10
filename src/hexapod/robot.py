@@ -62,7 +62,10 @@ class Robot:
         self._pending_pose: PoseDTO | None = None
         self._stopped = False
         self._servos_enabled = False
-        self._zero_stance = False
+        self._zero_stance = True  # start in zero stance
+        # Sit-down blend: 1.0 = gait active, ramps toward 0 when entering zero.
+        self._standup_blend = 0.0
+        self._standup_speed = 0.5  # per second (~2s full transition)
 
     # ── command surface ────────────────────────────────────────────────
 
@@ -123,8 +126,18 @@ class Robot:
         self._servos_enabled = bool(enabled)
 
     def set_zero_stance(self, enabled: bool) -> None:
-        """Toggle zero stance — all joints held at angle 0."""
+        """Toggle zero stance.
+
+        Off → on: smoothly blend angles down to zero (sit down).
+        On → off: unfreeze the gait so it steps into position (stand up).
+        """
         self._zero_stance = bool(enabled)
+        if not enabled:
+            # Kick the gait so legs start stepping into neutral positions.
+            self._phase = 0.0
+            self.gait._prev_local.clear()
+            self.gait._latched_delta.clear()
+            self.gait._stance_world.clear()
 
     def _has_twist(self) -> bool:
         t = self._commanded_twist
@@ -157,7 +170,8 @@ class Robot:
             self.gait._prev_local.clear()
             self.gait._latched_delta.clear()
             self._kick_pending = False
-        elif self.gait.is_active or self._has_twist():
+        elif self.gait.is_active or self._has_twist() or self._standup_blend < 1.0:
+            # Also advance phase during stand-up so legs step into position.
             self._phase = (self._phase + dt / self.cycle_seconds) % 1.0
         else:
             # No twist — make sure every leg is in stance so tilting
@@ -172,31 +186,34 @@ class Robot:
             targets[key] = xyz
         self._pending_foot_targets.clear()
 
-        # 4. IK -> joint commands -> driver. Any solver failure falls back to
-        #    the leg's current angles, so a single bad target never crashes
-        #    the loop or strands the server.
-        commands: dict[LegKey, JointAngles] = {}
+        # 4. IK -> joint commands -> driver.
+        #    Stand-up (zero off): gait runs normally, legs step into position.
+        #    Sit-down (zero on):  blend angles toward 0 gradually.
         if self._zero_stance:
-            zero = JointAngles(coxa=0.0, femur=0.0, tibia=0.0)
-            for leg in self.hexapod.legs:
-                key = (leg.segment, leg.side)
-                commands[key] = zero
-                leg.coxa.angle.rad = 0.0
-                leg.femur.angle.rad = 0.0
-                leg.tibia.angle.rad = 0.0
+            self._standup_blend = max(
+                0.0, self._standup_blend - self._standup_speed * dt,
+            )
         else:
-            for key, target in targets.items():
-                leg = self.hexapod.legs.get(*key)
-                try:
-                    c, f, ti = ik.solve(leg, target)
-                except (ValueError, ZeroDivisionError):
-                    c = leg.coxa.angle.rad
-                    f = leg.femur.angle.rad
-                    ti = leg.tibia.angle.rad
-                commands[key] = JointAngles(coxa=c, femur=f, tibia=ti)
-                leg.coxa.angle.rad = c
-                leg.femur.angle.rad = f
-                leg.tibia.angle.rad = ti
+            self._standup_blend = min(
+                1.0, self._standup_blend + self._standup_speed * dt,
+            )
+
+        commands: dict[LegKey, JointAngles] = {}
+        for key, target in targets.items():
+            leg = self.hexapod.legs.get(*key)
+            try:
+                c, f, ti = ik.solve(leg, target)
+            except (ValueError, ZeroDivisionError):
+                c = leg.coxa.angle.rad
+                f = leg.femur.angle.rad
+                ti = leg.tibia.angle.rad
+            # During sit-down, scale angles toward zero.
+            b = self._standup_blend
+            blended = JointAngles(coxa=c * b, femur=f * b, tibia=ti * b)
+            commands[key] = blended
+            leg.coxa.angle.rad = blended.coxa
+            leg.femur.angle.rad = blended.femur
+            leg.tibia.angle.rad = blended.tibia
         if self._servos_enabled:
             self.driver.write(commands)
 
