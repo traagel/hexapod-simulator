@@ -65,6 +65,21 @@ class Gait:
                 return True
         return False
 
+    def land_all(self) -> None:
+        """Force every leg into stance, world-locked at its current position.
+
+        Called when the robot stops so that no leg is left dangling in a
+        swing phase.  Legs already in stance keep their existing lock.
+        """
+        pose = self.hexapod.pose
+        height = self.hexapod.height
+        for leg in self.hexapod.legs:
+            key = (leg.segment, leg.side)
+            if key not in self._stance_world:
+                neutral = self.neutral_position(leg)
+                w = pose.transform(neutral, pivot_z=height)
+                self._stance_world[key] = (w[0], w[1], self.stance_z)
+
     # --- geometry -----------------------------------------------------------
 
     def neutral_position(self, leg: Leg) -> tuple[float, float, float]:
@@ -128,6 +143,7 @@ class Gait:
         """
         EARLY_TOUCHDOWN_MIN = 0.3  # ignore contact during the first 30% of swing
         pose = self.hexapod.pose
+        height = self.hexapod.height
         result: LegTargets = {}
 
         for leg in self.hexapod.legs:
@@ -179,7 +195,7 @@ class Gait:
                 if start_body is None:
                     start_body = neutral
                 else:
-                    start_body = pose.inverse_transform(start_body)
+                    start_body = pose.inverse_transform(start_body, pivot_z=height)
                 self._swing_start_body[key] = start_body
 
                 dx, dy = self._foot_delta(neutral)
@@ -207,18 +223,22 @@ class Gait:
                     current_body = self._swing_at(leg, local_natural, neutral)
                 else:
                     current_body = self._swing_target_body.get(key, neutral)
-                self._stance_world[key] = pose.transform(current_body)
+                self._stance_world[key] = pose.transform(current_body, pivot_z=height)
 
-            if local < 0.5:
+            if local < 0.5 and key not in self._stance_world:
                 # swing — interpolate body-frame, add lift arc
                 target = self._swing_at(leg, local, neutral)
             else:
-                # stance — hold the locked world position (or just sit at
-                # neutral if we don't have one yet, e.g. first frame)
-                if key in self._stance_world:
-                    target = pose.inverse_transform(self._stance_world[key])
-                else:
-                    target = neutral
+                # stance — hold the locked world position.
+                if key not in self._stance_world:
+                    # First frame or never walked — lock neutral at ground.
+                    w = pose.transform(neutral, pivot_z=height)
+                    self._stance_world[key] = (w[0], w[1], self.stance_z)
+                w = self._stance_world[key]
+                # Project to ground so feet stay planted when body tilts.
+                target = pose.inverse_transform(
+                    (w[0], w[1], self.stance_z), pivot_z=height,
+                )
 
             result[key] = target
             self._prev_local[key] = local_natural
@@ -238,6 +258,17 @@ class Gait:
         vx, vy = self.linear_velocity
         w = self.angular_velocity
         return (0.5 * (vx - w * ny), 0.5 * (vy + w * nx))
+
+    def _ground_z_at(self, x: float, y: float) -> float:
+        """Body-frame z that corresponds to world z=0 at the given xy.
+
+        When roll/pitch are zero this returns ``stance_z`` (typically 0).
+        """
+        pose = self.hexapod.pose
+        height = self.hexapod.height
+        world = pose.transform((x, y, self.stance_z), pivot_z=height)
+        ground_world = (world[0], world[1], self.stance_z)
+        return pose.inverse_transform(ground_world, pivot_z=height)[2]
 
     def _swing_at(
         self,
@@ -259,7 +290,11 @@ class Gait:
         is_idle = span < 1e-6
         lift = 0.0 if is_idle else self.lift_height * math.sin(math.pi * t)
 
-        return (x, y, neutral[2] + lift)
+        # Find where ground (world z=0) is in body frame at this foot's
+        # xy position, so the swing arc stays above ground when the body
+        # is tilted.
+        ground_z = self._ground_z_at(x, y)
+        return (x, y, ground_z + lift)
 
 
 def _normalize(v: tuple[float, float]) -> tuple[float, float]:

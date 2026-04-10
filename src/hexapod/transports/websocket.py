@@ -8,6 +8,7 @@ Server protocol:
                       {"type": "set_height", "z"}
                       {"type": "set_step_length", "length"}
                       {"type": "set_stance_radius", "radius"}
+                      {"type": "set_orientation", "roll", "pitch"}
                       {"type": "set_foot_target", "leg", "x", "y", "z"}
                           leg ∈ {front_left, front_right, mid_left, mid_right,
                                  rear_left, rear_right}
@@ -103,6 +104,11 @@ class WebSocketServer:
             self.robot.set_step_length(float(msg.get("length", 4.0)))
         elif kind == "set_stance_radius":
             self.robot.set_stance_radius(float(msg.get("radius", 9.8)))
+        elif kind == "set_orientation":
+            self.robot.set_body_orientation(
+                float(msg.get("roll", 0.0)),
+                float(msg.get("pitch", 0.0)),
+            )
         elif kind == "set_foot_target":
             leg_name = msg.get("leg")
             leg = _LEG_KEYS.get(leg_name) if isinstance(leg_name, str) else None

@@ -27,12 +27,15 @@ class SimDriver:
         return result
 
     def read_contacts(self) -> dict[LegKey, bool] | None:
-        """Synthetic contact: foot z near 0 (within a few mm)."""
+        """Synthetic contact: foot world-frame z near ground (within a few mm)."""
         threshold = 0.05
-        return {
-            (leg.segment, leg.side): leg.tibia.end[2] <= threshold
-            for leg in self.hexapod.legs
-        }
+        pose = self.hexapod.pose
+        height = self.hexapod.height
+        result: dict[LegKey, bool] = {}
+        for leg in self.hexapod.legs:
+            world_z = pose.transform(leg.tibia.end, pivot_z=height)[2]
+            result[(leg.segment, leg.side)] = world_z <= threshold
+        return result
 
     def close(self) -> None:
         pass

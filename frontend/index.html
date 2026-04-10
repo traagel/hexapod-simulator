@@ -298,12 +298,15 @@
 
       function updatePolygons(state) {
         const pose = state.pose;
-        const c = Math.cos(pose.yaw), s = Math.sin(pose.yaw);
-        const toWorld = (b) => [
-          pose.x + c * b[0] - s * b[1],
-          pose.y + s * b[0] + c * b[1],
-          0.02,                              // sit just above the grid
-        ];
+        // Use the bodyGroup's full world matrix so the polygons account
+        // for roll/pitch, not just yaw.
+        bodyGroup.updateMatrixWorld();
+        const _v = new THREE.Vector3();
+        const toWorld = (b) => {
+          _v.set(b[0], b[1], b[2] - pose.z);
+          bodyGroup.localToWorld(_v);
+          return [_v.x, _v.y, 0.02];  // project to ground
+        };
         TRIPOD_GROUPS.forEach((group, i) => {
           const feetWorld = group.legs.map((name) => toWorld(state.legs[name].foot));
           // Sort by angle around centroid for non-self-intersecting triangle.
@@ -363,7 +366,7 @@
         latestState = state;
         const pose = state.pose;
         bodyGroup.position.set(pose.x, pose.y, pose.z);
-        bodyGroup.rotation.z = pose.yaw;
+        bodyGroup.rotation.set(pose.roll || 0, pose.pitch || 0, pose.yaw, "ZYX");
 
         // Body plate — extruded hex from the 6 coxa starts.
         const bodyVerts = LEG_NAMES.map((name) => {
@@ -552,6 +555,34 @@
         const omega = (keys["q"] ? 1.5 : 0) - (keys["e"] ? 1.5 : 0);
         send({ type: "twist", vx, vy, omega });
       }
+
+      // ─── mouse tilt (Shift + mouse) ─────────────────────────────────
+      const MAX_TILT = Math.PI / 12;  // ±15°
+      let shiftHeld = false;
+
+      window.addEventListener("keydown", (e) => {
+        if (e.key === "Shift" && !shiftHeld) {
+          shiftHeld = true;
+          controls.enabled = false;  // disable orbit while tilting
+        }
+      });
+      window.addEventListener("keyup", (e) => {
+        if (e.key === "Shift") {
+          shiftHeld = false;
+          controls.enabled = true;
+          send({ type: "set_orientation", roll: 0, pitch: 0 });
+        }
+      });
+      window.addEventListener("mousemove", (e) => {
+        if (!shiftHeld) return;
+        // Map cursor position to ±MAX_TILT.
+        // X axis → roll (left/right tilt), Y axis → pitch (forward/back tilt).
+        const nx = (e.clientX / window.innerWidth  - 0.5) * 2;  // -1..+1
+        const ny = (e.clientY / window.innerHeight - 0.5) * 2;
+        const roll  = -nx * MAX_TILT;
+        const pitch =  ny * MAX_TILT;
+        send({ type: "set_orientation", roll, pitch });
+      });
 
       // ─── render loop ───────────────────────────────────────────────
       function tick() {

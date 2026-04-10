@@ -82,7 +82,7 @@ def test_early_touchdown_locks_at_current_swing_position_not_planned_end(
     g.targets(0.42, contacts=contacts)
 
     locked_world = g._stance_world[key]
-    expected_world = hexapod.pose.transform(swing_pos_now)
+    expected_world = hexapod.pose.transform(swing_pos_now, pivot_z=hexapod.height)
     # Allow a tiny window because the swing arc advances slightly between
     # phases 0.4 and 0.42.
     for axis in range(3):

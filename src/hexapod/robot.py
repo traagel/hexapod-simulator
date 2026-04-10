@@ -86,6 +86,11 @@ class Robot:
         """Body z above the ground."""
         self.hexapod.height = float(height)
 
+    def set_body_orientation(self, roll: float, pitch: float) -> None:
+        """Tilt the body. Angles in radians."""
+        self.hexapod.pose.roll = float(roll)
+        self.hexapod.pose.pitch = float(pitch)
+
     def set_step_length(self, length: float) -> None:
         """Soft cap on the gait's per-cycle body translation."""
         self.max_step_length = max(0.0, float(length))
@@ -100,6 +105,10 @@ class Robot:
     def stop(self) -> None:
         self._pending_twist = TwistDTO(0.0, 0.0, 0.0)
         self._stopped = True
+
+    def _has_twist(self) -> bool:
+        t = self._commanded_twist
+        return t.vx != 0.0 or t.vy != 0.0 or t.omega != 0.0
 
     # ── tick the world ─────────────────────────────────────────────────
 
@@ -117,7 +126,9 @@ class Robot:
             self._apply_twist(self._pending_twist)
             self._pending_twist = None
 
-        # 2. Advance the gait phase by wall time.
+        # 2. Advance the gait phase by wall time.  Freeze when the gait
+        #    has no active plan so legs don't keep cycling swing↔stance
+        #    and re-locking at slightly different positions each time.
         if self._kick_pending:
             # Reset the gait so the very next targets() call sees a fresh
             # swing-start for group 0 and (after the swing-end check) the
@@ -126,8 +137,12 @@ class Robot:
             self.gait._prev_local.clear()
             self.gait._latched_delta.clear()
             self._kick_pending = False
-        else:
+        elif self.gait.is_active or self._has_twist():
             self._phase = (self._phase + dt / self.cycle_seconds) % 1.0
+        else:
+            # No twist — make sure every leg is in stance so tilting
+            # while stationary doesn't leave swing legs dangling.
+            self.gait.land_all()
 
         # 3. Compute foot targets from the gait. The gait reads ground-contact
         #    feedback to terminate swings early when a foot bumps something.
@@ -219,6 +234,8 @@ class Robot:
                 y=self.hexapod.pose.y,
                 z=self.hexapod.height,
                 yaw=self.hexapod.pose.yaw,
+                roll=self.hexapod.pose.roll,
+                pitch=self.hexapod.pose.pitch,
             ),
             twist=TwistDTO(
                 vx=self.gait.linear_velocity[0] / self.cycle_seconds,

@@ -40,7 +40,8 @@ class MatplotlibViz:
             f"t={state.t:5.2f}  pose=({pose.x:.1f}, {pose.y:.1f}, yaw={pose.yaw:.2f})"
         )
 
-        T = pose.transform
+        h = hexapod.height
+        T = lambda p: pose.transform(p, pivot_z=h)  # noqa: E731
 
         body = [T(leg.coxa.start) for leg in hexapod.legs]
         body.append(body[0])
@@ -153,7 +154,7 @@ def _draw_gait_polygons(ax, hexapod, gait: Gait, phase: float) -> None:
         feet = []
         for key in group:
             leg = hexapod.legs.get(*key)
-            fx, fy, _ = hexapod.pose.transform(leg.tibia.end)
+            fx, fy, _ = hexapod.pose.transform(leg.tibia.end, pivot_z=hexapod.height)
             feet.append((fx, fy, 0.0))
         if len(feet) < 3:
             continue
