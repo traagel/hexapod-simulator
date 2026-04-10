@@ -74,6 +74,15 @@
           border-radius:3px;background:#333;color:#ddd;cursor:pointer;font:12px monospace">FPV</button>
       </div>
       <span></span>
+      <label>yaw sens</label>
+      <input id="sens-yaw"   type="range" min="1" max="20" step="1" value="5" />
+      <span class="v" id="sens-yaw-v">5</span>
+      <label>pitch sens</label>
+      <input id="sens-pitch" type="range" min="1" max="20" step="1" value="4" />
+      <span class="v" id="sens-pitch-v">4</span>
+      <label>roll speed</label>
+      <input id="sens-roll"  type="range" min="1" max="20" step="1" value="6" />
+      <span class="v" id="sens-roll-v">6</span>
       <hr style="opacity:0.3;margin:8px 0">
       <label>contacts</label>
       <div id="contacts" style="display:flex;gap:6px;flex-wrap:wrap;font:11px monospace">
@@ -634,17 +643,42 @@
 
       let fpvYaw = 0;  // accumulated yaw from mouse in FPV
 
+      // Sensitivity slider readouts.
+      const sensYawEl   = document.getElementById("sens-yaw");
+      const sensPitchEl = document.getElementById("sens-pitch");
+      const sensRollEl  = document.getElementById("sens-roll");
+      const sensYawV    = document.getElementById("sens-yaw-v");
+      const sensPitchV  = document.getElementById("sens-pitch-v");
+      const sensRollV   = document.getElementById("sens-roll-v");
+      sensYawEl.oninput   = () => { sensYawV.textContent = sensYawEl.value; };
+      sensPitchEl.oninput = () => { sensPitchV.textContent = sensPitchEl.value; };
+      sensRollEl.oninput  = () => { sensRollV.textContent = sensRollEl.value; };
+
+      // FPV orientation update — runs every frame via the render loop.
+      const ROLL_DECAY = 0.92;  // per-frame decay toward 0 when Q/E released
+      function fpvOrientationTick() {
+        if (!fpvActive) return;
+        const rollDir = (keys["q"] ? 1 : 0) - (keys["e"] ? 1 : 0);
+        const rollSpeed = sensRollEl.value / 10;  // 0.1 .. 2.0
+        if (rollDir !== 0) {
+          // Ramp toward target.
+          fpvRoll += rollDir * rollSpeed * 0.02;
+          fpvRoll = Math.max(-MAX_TILT, Math.min(MAX_TILT, fpvRoll));
+        } else {
+          // Decay back to 0.
+          fpvRoll *= ROLL_DECAY;
+          if (Math.abs(fpvRoll) < 0.001) fpvRoll = 0;
+        }
+        send({ type: "set_orientation", roll: fpvRoll, pitch: fpvPitch });
+      }
+
       function pushTwist() {
         if (keys[" "]) { send({ type: "stop" }); fpvYaw = 0; return; }
         const vx = (keys["w"] ? 15 : 0) - (keys["s"] ? 15 : 0);
         const vy = (keys["a"] ? 15 : 0) - (keys["d"] ? 15 : 0);
         if (fpvActive) {
-          // FPV: Q/E control roll, mouse controls yaw + pitch
-          const roll = (keys["q"] ? 1 : 0) - (keys["e"] ? 1 : 0);
-          fpvRoll = Math.max(-MAX_TILT, Math.min(MAX_TILT, roll * MAX_TILT));
           send({ type: "twist", vx, vy, omega: fpvYaw });
-          send({ type: "set_orientation", roll: fpvRoll, pitch: fpvPitch });
-          fpvYaw = 0;  // yaw is a rate, reset after sending
+          fpvYaw = 0;
         } else {
           const omega = (keys["q"] ? 1.5 : 0) - (keys["e"] ? 1.5 : 0);
           send({ type: "twist", vx, vy, omega });
@@ -671,10 +705,11 @@
       window.addEventListener("mousemove", (e) => {
         if (fpvActive) {
           // Pointer lock: X → yaw (turn rate), Y → pitch (tilt).
-          fpvYaw   = -e.movementX * 0.003;
-          fpvPitch = Math.max(-MAX_TILT, Math.min(MAX_TILT, fpvPitch + e.movementY * 0.002));
+          const yawSens   = sensYawEl.value / 1000;    // 0.001 .. 0.020
+          const pitchSens = sensPitchEl.value / 2000;  // 0.0005 .. 0.010
+          fpvYaw   = -e.movementX * yawSens;
+          fpvPitch = Math.max(-MAX_TILT, Math.min(MAX_TILT, fpvPitch + e.movementY * pitchSens));
           send({ type: "twist", vx: 0, vy: 0, omega: fpvYaw });
-          send({ type: "set_orientation", roll: fpvRoll, pitch: fpvPitch });
           fpvYaw = 0;
           return;
         }
@@ -690,6 +725,7 @@
 
       // ─── render loop ───────────────────────────────────────────────
       function tick() {
+        fpvOrientationTick();
         // Keep the shadow light centred on the robot.
         dirLight.position.set(
           bodyGroup.position.x + 30,
