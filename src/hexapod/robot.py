@@ -63,14 +63,18 @@ class Robot:
         self._stopped = False
         self._servos_enabled = False
         self._zero_stance = True  # start in zero stance
-        self._transitioning = False  # true while stepping to/from zero
+
+        # Transition animation state.
+        self._transitioning = False
         self._transition_elapsed = 0.0
+        self._transition_duration = 2.0  # total seconds for both groups
+        self._transition_start: dict[LegKey, tuple[float, float, float]] = {}
+        self._transition_end: dict[LegKey, tuple[float, float, float]] = {}
+        self._transition_lift = 3.0
 
         # Pre-compute the FK foot positions at all-zero joint angles.
-        # The gait will step toward these when sitting down.
         self._zero_foot_targets: dict[LegKey, tuple[float, float, float]] = {}
         for leg in self.hexapod.legs:
-            # Save current angles, set to zero, compute FK, restore.
             saved = (leg.coxa.angle.rad, leg.femur.angle.rad, leg.tibia.angle.rad)
             leg.coxa.angle.rad = 0.0
             leg.femur.angle.rad = 0.0
@@ -137,29 +141,63 @@ class Robot:
         self._servos_enabled = bool(enabled)
 
     def set_zero_stance(self, enabled: bool) -> None:
-        """Toggle zero stance.
+        """Toggle zero stance with a two-phase tap-dance transition.
 
-        Both directions use the gait to step into position (tap dance).
-        Sit-down overrides foot targets to zero-angle FK positions.
-        Stand-up steps back to normal gait neutral positions.
+        Each tripod group lifts, moves to target, and sets down in turn.
         """
         self._zero_stance = bool(enabled)
         self._transitioning = True
         self._transition_elapsed = 0.0
-        # Override gait neutrals so legs step to the right targets.
-        if enabled:
-            self.gait.neutral_overrides = dict(self._zero_foot_targets)
-        else:
-            self.gait.neutral_overrides = {}
-        # Kick the gait so legs start stepping immediately.
-        self._phase = 0.0
-        self.gait._prev_local.clear()
-        self.gait._latched_delta.clear()
-        self.gait._stance_world.clear()
+        self._transition_lift = self.gait.lift_height
+
+        # Snapshot current foot positions as start, compute end targets.
+        for leg in self.hexapod.legs:
+            key = (leg.segment, leg.side)
+            self._transition_start[key] = fk.solve(leg)
+            if enabled:
+                self._transition_end[key] = self._zero_foot_targets[key]
+            else:
+                self._transition_end[key] = self.gait.neutral_position(leg)
 
     def _has_twist(self) -> bool:
         t = self._commanded_twist
         return t.vx != 0.0 or t.vy != 0.0 or t.omega != 0.0
+
+    def _transition_targets(self, dt: float) -> dict[LegKey, tuple[float, float, float]]:
+        """Two-phase tap-dance: group 0 moves in first half, group 1 in second."""
+        import math
+
+        t = min(self._transition_elapsed / self._transition_duration, 1.0)
+        half = self._transition_duration / 2.0
+        groups = self.gait.GROUPS
+        result: dict[LegKey, tuple[float, float, float]] = {}
+
+        for i, group in enumerate(groups):
+            # Group 0 moves during t=0..0.5, group 1 during t=0.5..1.0
+            phase_start = i * 0.5
+            phase_end = phase_start + 0.5
+            local = (t - phase_start) / 0.5  # 0..1 within this group's window
+            local = max(0.0, min(1.0, local))
+
+            for key in group:
+                s = self._transition_start[key]
+                e = self._transition_end[key]
+
+                if local <= 0.0:
+                    # Not started yet — hold at start.
+                    result[key] = s
+                elif local >= 1.0:
+                    # Done — hold at end.
+                    result[key] = e
+                else:
+                    # Interpolate XY, add lift arc on Z.
+                    x = s[0] + (e[0] - s[0]) * local
+                    y = s[1] + (e[1] - s[1]) * local
+                    z_base = s[2] + (e[2] - s[2]) * local
+                    lift = self._transition_lift * math.sin(math.pi * local)
+                    result[key] = (x, y, z_base + lift)
+
+        return result
 
     # ── tick the world ─────────────────────────────────────────────────
 
@@ -188,31 +226,35 @@ class Robot:
             self.gait._prev_local.clear()
             self.gait._latched_delta.clear()
             self._kick_pending = False
-        elif self.gait.is_active or self._has_twist() or self._transitioning:
-            # Also advance phase during transitions so legs step into position.
+        elif self.gait.is_active or self._has_twist():
             self._phase = (self._phase + dt / self.cycle_seconds) % 1.0
         else:
             # No twist — make sure every leg is in stance so tilting
             # while stationary doesn't leave swing legs dangling.
             self.gait.land_all()
 
-        # 3. Compute foot targets from the gait. The gait reads ground-contact
-        #    feedback to terminate swings early when a foot bumps something.
-        contacts = self.driver.read_contacts()
-        targets = self.gait.targets(self._phase, contacts=contacts)
-        for key, xyz in self._pending_foot_targets.items():
-            targets[key] = xyz
-        self._pending_foot_targets.clear()
-
-        # End transition after one full gait cycle (both tripods have stepped).
+        # ── Transition animation ──────────────────────────────────────
         if self._transitioning:
             self._transition_elapsed += dt
-            if self._transition_elapsed >= self.cycle_seconds:
+            if self._transition_elapsed >= self._transition_duration:
                 self._transitioning = False
-                self.gait.neutral_overrides = {}
+                if not self._zero_stance:
+                    # Stood up — clear gait state so it picks up fresh.
+                    self.gait._stance_world.clear()
+
+            targets = self._transition_targets(dt)
+        elif self._zero_stance:
+            # Holding zero — keep all feet at zero FK positions.
+            targets = dict(self._zero_foot_targets)
+        else:
+            # 3. Normal gait targets.
+            contacts = self.driver.read_contacts()
+            targets = self.gait.targets(self._phase, contacts=contacts)
+            for key, xyz in self._pending_foot_targets.items():
+                targets[key] = xyz
+            self._pending_foot_targets.clear()
 
         # 4. IK -> joint commands -> driver.
-
         commands: dict[LegKey, JointAngles] = {}
         for key, target in targets.items():
             leg = self.hexapod.legs.get(*key)

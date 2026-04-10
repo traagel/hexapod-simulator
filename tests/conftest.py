@@ -28,4 +28,9 @@ def gait(hexapod: Hexapod) -> TripodGait:
 
 @pytest.fixture
 def robot(hexapod: Hexapod, gait: TripodGait) -> Robot:
-    return Robot(hexapod, gait, SimDriver(hexapod), cycle_seconds=0.6)
+    r = Robot(hexapod, gait, SimDriver(hexapod), cycle_seconds=0.6)
+    r.set_zero_stance(False)  # tests expect gait-active robot
+    # Skip past the stand-up transition.
+    for _ in range(200):
+        r.step(0.02)
+    return r
