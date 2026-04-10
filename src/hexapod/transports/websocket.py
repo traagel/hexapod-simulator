@@ -9,6 +9,8 @@ Server protocol:
                       {"type": "set_step_length", "length"}
                       {"type": "set_stance_radius", "radius"}
                       {"type": "set_orientation", "roll", "pitch"}
+                      {"type": "set_servos", "enabled": bool}
+                      {"type": "zero_stance"}
                       {"type": "set_foot_target", "leg", "x", "y", "z"}
                           leg ∈ {front_left, front_right, mid_left, mid_right,
                                  rear_left, rear_right}
@@ -109,6 +111,10 @@ class WebSocketServer:
                 float(msg.get("roll", 0.0)),
                 float(msg.get("pitch", 0.0)),
             )
+        elif kind == "set_servos":
+            self.robot.set_servos_enabled(bool(msg.get("enabled", False)))
+        elif kind == "zero_stance":
+            self.robot.set_zero_stance(bool(msg.get("enabled", False)))
         elif kind == "set_foot_target":
             leg_name = msg.get("leg")
             leg = _LEG_KEYS.get(leg_name) if isinstance(leg_name, str) else None

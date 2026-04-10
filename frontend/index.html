@@ -59,6 +59,15 @@
       <input id="tz" type="range" min="-10" max="20" step="0.5" value="0" />
       <span class="v" id="tz-v">0</span>
       <hr style="opacity:0.3;margin:8px 0">
+      <label>servos</label>
+      <div style="display:flex;gap:8px;grid-column:span 2">
+        <button id="servo-toggle" style="flex:1;padding:4px 8px;border:1px solid #555;
+          border-radius:3px;background:#333;color:#f44;cursor:pointer;font:12px monospace">OFF</button>
+        <button id="zero-btn" style="flex:1;padding:4px 8px;border:1px solid #555;
+          border-radius:3px;background:#333;color:#ddd;cursor:pointer;font:12px monospace">ZERO</button>
+      </div>
+      <span></span>
+      <hr style="opacity:0.3;margin:8px 0">
       <label>contacts</label>
       <div id="contacts" style="display:flex;gap:6px;flex-wrap:wrap;font:11px monospace">
         <span class="c" data-leg="front_left">FL</span>
@@ -460,6 +469,23 @@
       document.getElementById("camera-close").onclick = () => {
         const cam = document.getElementById("camera");
         cam.style.display = cam.style.display === "none" ? "block" : "none";
+      };
+
+      // ─── servo controls ───────────────────────────────────────────────
+      let servosOn = false;
+      const servoBtn = document.getElementById("servo-toggle");
+      servoBtn.onclick = () => {
+        servosOn = !servosOn;
+        send({ type: "set_servos", enabled: servosOn });
+        servoBtn.textContent = servosOn ? "ON" : "OFF";
+        servoBtn.style.color = servosOn ? "#4f4" : "#f44";
+      };
+      let zeroOn = false;
+      const zeroBtn = document.getElementById("zero-btn");
+      zeroBtn.onclick = () => {
+        zeroOn = !zeroOn;
+        send({ type: "zero_stance", enabled: zeroOn });
+        zeroBtn.style.color = zeroOn ? "#4f4" : "#ddd";
       };
 
       function send(obj) {

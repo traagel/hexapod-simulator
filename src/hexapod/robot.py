@@ -61,6 +61,8 @@ class Robot:
         self._pending_foot_targets: dict[LegKey, tuple[float, float, float]] = {}
         self._pending_pose: PoseDTO | None = None
         self._stopped = False
+        self._servos_enabled = False
+        self._zero_stance = False
 
     # ── command surface ────────────────────────────────────────────────
 
@@ -105,6 +107,14 @@ class Robot:
     def stop(self) -> None:
         self._pending_twist = TwistDTO(0.0, 0.0, 0.0)
         self._stopped = True
+
+    def set_servos_enabled(self, enabled: bool) -> None:
+        """Enable or disable servo output. Disabled by default."""
+        self._servos_enabled = bool(enabled)
+
+    def set_zero_stance(self, enabled: bool) -> None:
+        """Toggle zero stance — all joints held at angle 0."""
+        self._zero_stance = bool(enabled)
 
     def _has_twist(self) -> bool:
         t = self._commanded_twist
@@ -156,24 +166,29 @@ class Robot:
         #    the leg's current angles, so a single bad target never crashes
         #    the loop or strands the server.
         commands: dict[LegKey, JointAngles] = {}
-        for key, target in targets.items():
-            leg = self.hexapod.legs.get(*key)
-            try:
-                c, f, ti = ik.solve(leg, target)
-            except (ValueError, ZeroDivisionError):
-                c = leg.coxa.angle.rad
-                f = leg.femur.angle.rad
-                ti = leg.tibia.angle.rad
-            commands[key] = JointAngles(coxa=c, femur=f, tibia=ti)
-            # Write into the in-memory model directly, so FK and the
-            # visualization see the new pose regardless of whether the
-            # driver is the sim, the WebSocket transport, or real hardware.
-            # SimDriver.write() does the same thing as a side effect; this
-            # makes the model update unconditional.
-            leg.coxa.angle.rad = c
-            leg.femur.angle.rad = f
-            leg.tibia.angle.rad = ti
-        self.driver.write(commands)
+        if self._zero_stance:
+            zero = JointAngles(coxa=0.0, femur=0.0, tibia=0.0)
+            for leg in self.hexapod.legs:
+                key = (leg.segment, leg.side)
+                commands[key] = zero
+                leg.coxa.angle.rad = 0.0
+                leg.femur.angle.rad = 0.0
+                leg.tibia.angle.rad = 0.0
+        else:
+            for key, target in targets.items():
+                leg = self.hexapod.legs.get(*key)
+                try:
+                    c, f, ti = ik.solve(leg, target)
+                except (ValueError, ZeroDivisionError):
+                    c = leg.coxa.angle.rad
+                    f = leg.femur.angle.rad
+                    ti = leg.tibia.angle.rad
+                commands[key] = JointAngles(coxa=c, femur=f, tibia=ti)
+                leg.coxa.angle.rad = c
+                leg.femur.angle.rad = f
+                leg.tibia.angle.rad = ti
+        if self._servos_enabled:
+            self.driver.write(commands)
 
         # 5. Integrate body pose ONLY when at least one leg is committed to a
         #    real step. Otherwise the body would slide ahead of feet that
