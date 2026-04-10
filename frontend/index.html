@@ -632,12 +632,23 @@
         }
       });
 
+      let fpvYaw = 0;  // accumulated yaw from mouse in FPV
+
       function pushTwist() {
-        if (keys[" "]) { send({ type: "stop" }); return; }
+        if (keys[" "]) { send({ type: "stop" }); fpvYaw = 0; return; }
         const vx = (keys["w"] ? 15 : 0) - (keys["s"] ? 15 : 0);
         const vy = (keys["a"] ? 15 : 0) - (keys["d"] ? 15 : 0);
-        const omega = (keys["q"] ? 1.5 : 0) - (keys["e"] ? 1.5 : 0);
-        send({ type: "twist", vx, vy, omega });
+        if (fpvActive) {
+          // FPV: Q/E control roll, mouse controls yaw + pitch
+          const roll = (keys["q"] ? 1 : 0) - (keys["e"] ? 1 : 0);
+          fpvRoll = Math.max(-MAX_TILT, Math.min(MAX_TILT, roll * MAX_TILT));
+          send({ type: "twist", vx, vy, omega: fpvYaw });
+          send({ type: "set_orientation", roll: fpvRoll, pitch: fpvPitch });
+          fpvYaw = 0;  // yaw is a rate, reset after sending
+        } else {
+          const omega = (keys["q"] ? 1.5 : 0) - (keys["e"] ? 1.5 : 0);
+          send({ type: "twist", vx, vy, omega });
+        }
       }
 
       // ─── mouse tilt (Shift + mouse) ─────────────────────────────────
@@ -659,10 +670,12 @@
       });
       window.addEventListener("mousemove", (e) => {
         if (fpvActive) {
-          // Pointer lock: accumulate deltas, clamp to ±MAX_TILT.
-          fpvRoll  = Math.max(-MAX_TILT, Math.min(MAX_TILT, fpvRoll  - e.movementX * 0.002));
+          // Pointer lock: X → yaw (turn rate), Y → pitch (tilt).
+          fpvYaw   = -e.movementX * 0.003;
           fpvPitch = Math.max(-MAX_TILT, Math.min(MAX_TILT, fpvPitch + e.movementY * 0.002));
+          send({ type: "twist", vx: 0, vy: 0, omega: fpvYaw });
           send({ type: "set_orientation", roll: fpvRoll, pitch: fpvPitch });
+          fpvYaw = 0;
           return;
         }
         if (!shiftHeld) return;
