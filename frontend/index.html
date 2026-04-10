@@ -68,6 +68,13 @@
       </div>
       <span></span>
       <hr style="opacity:0.3;margin:8px 0">
+      <label>view</label>
+      <div style="grid-column:span 2">
+        <button id="fpv-btn" style="width:100%;padding:4px 8px;border:1px solid #555;
+          border-radius:3px;background:#333;color:#ddd;cursor:pointer;font:12px monospace">FPV</button>
+      </div>
+      <span></span>
+      <hr style="opacity:0.3;margin:8px 0">
       <label>contacts</label>
       <div id="contacts" style="display:flex;gap:6px;flex-wrap:wrap;font:11px monospace">
         <span class="c" data-leg="front_left">FL</span>
@@ -95,12 +102,33 @@
         background:rgba(0,0,0,0.6); color:#ddd; border:none; border-radius:3px;
         cursor:pointer; font-size:14px; padding:2px 6px;">x</button>
     </div>
+    <style>
+      body.fpv #camera {
+        position: fixed !important; top: 0 !important; left: 0 !important;
+        right: 0 !important; bottom: 0 !important; width: 100% !important;
+        height: 100% !important; z-index: 10;
+      }
+      body.fpv #camera img {
+        width: 100% !important; height: 100% !important;
+        max-width: none !important; object-fit: cover; border-radius: 0 !important;
+      }
+      body.fpv #camera button { display: none; }
+      body.fpv canvas {
+        position: fixed !important; bottom: 12px !important; left: 12px !important;
+        width: 280px !important; height: 200px !important; z-index: 20;
+        border-radius: 6px; border: 1px solid #555;
+      }
+      body.fpv #panel { z-index: 30; }
+      body.fpv #info  { z-index: 30; }
+      body.fpv #help  { z-index: 30; }
+    </style>
     <div id="help">
       <kbd>W</kbd>/<kbd>S</kbd> forward/back &nbsp;
       <kbd>A</kbd>/<kbd>D</kbd> strafe &nbsp;
       <kbd>Q</kbd>/<kbd>E</kbd> turn &nbsp;
       <kbd>space</kbd> stop &nbsp;
-      mouse drag to orbit
+      <kbd>shift</kbd>+mouse tilt &nbsp;
+      <kbd>esc</kbd> exit FPV
     </div>
 
     <script type="module">
@@ -488,6 +516,36 @@
         zeroBtn.style.color = zeroOn ? "#4f4" : "#ddd";
       };
 
+      // ─── FPV mode ────────────────────────────────────────────────────
+      let fpvActive = false;
+      let fpvRoll = 0, fpvPitch = 0;
+      const fpvBtn = document.getElementById("fpv-btn");
+      const camDiv = document.getElementById("camera");
+
+      function enterFPV() {
+        fpvActive = true;
+        document.body.classList.add("fpv");
+        camDiv.style.display = "block";
+        fpvBtn.style.color = "#4f4";
+        controls.enabled = false;
+        // Request pointer lock for mouse tilt control.
+        document.body.requestPointerLock();
+      }
+      function exitFPV() {
+        fpvActive = false;
+        document.body.classList.remove("fpv");
+        fpvBtn.style.color = "#ddd";
+        controls.enabled = true;
+        fpvRoll = 0; fpvPitch = 0;
+        send({ type: "set_orientation", roll: 0, pitch: 0 });
+        if (document.pointerLockElement) document.exitPointerLock();
+      }
+      fpvBtn.onclick = () => { fpvActive ? exitFPV() : enterFPV(); };
+      // Exit FPV if pointer lock is released (e.g. user presses Esc).
+      document.addEventListener("pointerlockchange", () => {
+        if (!document.pointerLockElement && fpvActive) exitFPV();
+      });
+
       function send(obj) {
         if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
       }
@@ -600,6 +658,13 @@
         }
       });
       window.addEventListener("mousemove", (e) => {
+        if (fpvActive) {
+          // Pointer lock: accumulate deltas, clamp to ±MAX_TILT.
+          fpvRoll  = Math.max(-MAX_TILT, Math.min(MAX_TILT, fpvRoll  - e.movementX * 0.002));
+          fpvPitch = Math.max(-MAX_TILT, Math.min(MAX_TILT, fpvPitch + e.movementY * 0.002));
+          send({ type: "set_orientation", roll: fpvRoll, pitch: fpvPitch });
+          return;
+        }
         if (!shiftHeld) return;
         // Map cursor position to ±MAX_TILT.
         // X axis → roll (left/right tilt), Y axis → pitch (forward/back tilt).
