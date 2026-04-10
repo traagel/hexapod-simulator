@@ -63,6 +63,9 @@ class Robot:
         self._stopped = False
         self._servos_enabled = False
         self._zero_stance = True  # start in zero stance
+        self._low_power = False
+        self._low_battery_cutoff_mv = 6400  # auto-disable servos below this
+        self._low_battery_triggered = False
 
         # Transition animation state.
         self._transitioning = False
@@ -139,6 +142,16 @@ class Robot:
     def set_servos_enabled(self, enabled: bool) -> None:
         """Enable or disable servo output. Disabled by default."""
         self._servos_enabled = bool(enabled)
+        if enabled:
+            self._low_battery_triggered = False
+
+    def set_low_power(self, enabled: bool) -> None:
+        """Low power mode — limits concurrent servo movement."""
+        self._low_power = bool(enabled)
+
+    def set_low_battery_cutoff(self, mv: int) -> None:
+        """Set battery voltage threshold (millivolts) for auto servo cutoff."""
+        self._low_battery_cutoff_mv = max(0, int(mv))
 
     def set_zero_stance(self, enabled: bool) -> None:
         """Toggle zero stance with a two-phase tap-dance transition.
@@ -268,6 +281,15 @@ class Robot:
             leg.coxa.angle.rad = c
             leg.femur.angle.rad = f
             leg.tibia.angle.rad = ti
+        # Low battery auto-cutoff.
+        voltage = getattr(self.driver, "voltage_mv", 0)
+        if (voltage > 0
+                and self._low_battery_cutoff_mv > 0
+                and voltage < self._low_battery_cutoff_mv
+                and self._servos_enabled):
+            self._servos_enabled = False
+            self._low_battery_triggered = True
+
         if self._servos_enabled:
             self.driver.write(commands)
 
@@ -341,6 +363,7 @@ class Robot:
             legs=legs,
             gait_phase=self._phase,
             voltage_mv=getattr(self.driver, "voltage_mv", 0),
+            low_battery=self._low_battery_triggered,
         )
 
     def subscribe(self, callback: StateCallback) -> Unsubscribe:

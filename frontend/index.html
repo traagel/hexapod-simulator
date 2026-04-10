@@ -44,6 +44,9 @@
       <label>cycle</label>
       <input id="cycle"   type="range" min="0.2" max="4" step="0.1" value="0.6" />
       <span class="v" id="cycle-v">0.6</span>
+      <label>speed</label>
+      <input id="speed"   type="range" min="1" max="30" step="1" value="15" />
+      <span class="v" id="speed-v">15</span>
       <hr style="opacity:0.3;margin:8px 0">
       <label>foot target</label>
       <select id="target-leg" style="display:block;width:100%;margin-bottom:4px">
@@ -71,6 +74,8 @@
           border-radius:3px;background:#333;color:#f44;cursor:pointer;font:12px monospace">OFF</button>
         <button id="zero-btn" style="flex:1;padding:4px 8px;border:1px solid #555;
           border-radius:3px;background:#333;color:#ddd;cursor:pointer;font:12px monospace">ZERO</button>
+        <button id="lowpwr-btn" style="flex:1;padding:4px 8px;border:1px solid #555;
+          border-radius:3px;background:#333;color:#ddd;cursor:pointer;font:12px monospace">LP</button>
       </div>
       <span></span>
       <hr style="opacity:0.3;margin:8px 0">
@@ -490,11 +495,21 @@
 
         const mv = state.voltage_mv || 0;
         const vBat = (mv / 1000).toFixed(2);
+        const batStr = mv > 0 ? `  bat=${vBat}V` : "";
+        const lowBat = state.low_battery ? "  LOW BATTERY" : "";
         info.textContent =
           `t=${state.t.toFixed(2)}  ` +
           `pose=(${pose.x.toFixed(1)}, ${pose.y.toFixed(1)}, yaw=${pose.yaw.toFixed(2)})  ` +
           `twist=(${state.twist.vx.toFixed(2)}, ${state.twist.vy.toFixed(2)}, ${state.twist.omega.toFixed(2)})` +
-          (mv > 0 ? `  bat=${vBat}V` : "");
+          batStr + lowBat;
+        info.style.color = state.low_battery ? "#f44" : "#ddd";
+
+        // Sync servo button if server auto-disabled due to low battery.
+        if (state.low_battery && servosOn) {
+          servosOn = false;
+          servoBtn.textContent = "OFF";
+          servoBtn.style.color = "#f44";
+        }
       }
 
       // ─── websocket ─────────────────────────────────────────────────
@@ -532,6 +547,22 @@
         zeroOn = !zeroOn;
         send({ type: "zero_stance", enabled: zeroOn });
         zeroBtn.style.color = zeroOn ? "#4f4" : "#ddd";
+      };
+
+      // Low power mode: halve speed + double cycle time.
+      let lowPower = false;
+      const lpBtn = document.getElementById("lowpwr-btn");
+      lpBtn.onclick = () => {
+        lowPower = !lowPower;
+        lpBtn.style.color = lowPower ? "#ff0" : "#ddd";
+        if (lowPower) {
+          speedEl.value = Math.max(1, Math.round(parseFloat(speedEl.value) / 2));
+          speedV.textContent = speedEl.value;
+          const cycleEl = document.getElementById("cycle");
+          cycleEl.value = Math.min(4, (parseFloat(cycleEl.value) * 2).toFixed(1));
+          document.getElementById("cycle-v").textContent = cycleEl.value;
+          cycleEl.dispatchEvent(new Event("input"));
+        }
       };
 
       // ─── FPV mode ────────────────────────────────────────────────────
@@ -683,10 +714,16 @@
         send({ type: "set_orientation", roll: fpvRoll, pitch: fpvPitch });
       }
 
+      // Speed slider readout.
+      const speedEl = document.getElementById("speed");
+      const speedV  = document.getElementById("speed-v");
+      speedEl.oninput = () => { speedV.textContent = speedEl.value; };
+
       function pushTwist() {
         if (keys[" "]) { send({ type: "stop" }); fpvYaw = 0; return; }
-        const vx = (keys["w"] ? 15 : 0) - (keys["s"] ? 15 : 0);
-        const vy = (keys["a"] ? 15 : 0) - (keys["d"] ? 15 : 0);
+        const spd = parseFloat(speedEl.value);
+        const vx = (keys["w"] ? spd : 0) - (keys["s"] ? spd : 0);
+        const vy = (keys["a"] ? spd : 0) - (keys["d"] ? spd : 0);
         if (fpvActive) {
           send({ type: "twist", vx, vy, omega: fpvYaw });
           fpvYaw = 0;

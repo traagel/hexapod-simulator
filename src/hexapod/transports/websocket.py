@@ -117,6 +117,8 @@ class WebSocketServer:
             )
         elif kind == "set_servos":
             self.robot.set_servos_enabled(bool(msg.get("enabled", False)))
+        elif kind == "set_low_battery_cutoff":
+            self.robot.set_low_battery_cutoff(int(msg.get("mv", 6400)))
         elif kind == "zero_stance":
             self.robot.set_zero_stance(bool(msg.get("enabled", False)))
         elif kind == "set_foot_target":
@@ -166,4 +168,7 @@ class WebSocketServer:
 
     def run(self) -> None:
         logging.basicConfig(level=logging.INFO)
-        asyncio.run(self.serve())
+        try:
+            asyncio.run(self.serve())
+        except KeyboardInterrupt:
+            log.info("shutting down")

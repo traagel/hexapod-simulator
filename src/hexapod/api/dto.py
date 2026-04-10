@@ -55,6 +55,7 @@ class RobotState:
     legs: dict[str, LegState]
     gait_phase: float
     voltage_mv: int = 0
+    low_battery: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -78,4 +79,5 @@ class RobotState:
             },
             gait_phase=d["gait_phase"],
             voltage_mv=d.get("voltage_mv", 0),
+            low_battery=d.get("low_battery", False),
         )
