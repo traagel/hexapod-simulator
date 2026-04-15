@@ -1,8 +1,8 @@
 # inverse_kinematics_hexapod
 
 Real-time hexapod simulator and control stack. Pure-Python core (kinematics,
-gait, pose), a clean public API, and a three.js frontend talking to a Python
-WebSocket server. The hardware path drives a Pimoroni Servo2040 over USB
+gait, pose), a clean public API, and a Svelte + three.js frontend talking to
+a Python WebSocket server. The hardware path drives a Pimoroni Servo2040 over USB
 serial via custom C++ firmware in `firmware/servo2040/`.
 
 > **Hardware reference**: this codebase is built around the 3D-printed
@@ -28,11 +28,14 @@ serial via custom C++ firmware in `firmware/servo2040/`.
   sliding when starting/stopping.
 - **Layered architecture** — core math, drivers, robot facade, controllers,
   transports, viz are all swappable. The same `Robot` drives a sim, a
-  matplotlib viewer, a three.js browser, or (planned) a Servo2040 over USB.
-- **Live three.js frontend** — orbit camera, jointed leg rendering, support
-  triangles, body trail, contact-coloured feet, sliders for height / step /
-  stance radius, WSAD/QE keyboard control, per-leg manual foot-target override,
-  live contact strip lighting up from the firmware feedback frame.
+  matplotlib viewer, the browser frontend, or a Pimoroni Servo2040 over USB.
+- **Svelte + three.js frontend (v2)** — orbit / chase / FPV cameras, drone-style
+  HUD (attitude, compass, minimap, sparklines), battery gauge, gamepad and
+  touch joystick support, sliders for height / step / stance radius / lift /
+  cycle time, WSAD/QE keyboard control, per-leg manual foot-target override,
+  live contact strip from the firmware feedback frame, optional MJPEG camera
+  stream. Served by `server.py` itself over HTTP; discoverable on the LAN
+  via mDNS (`hexapod.local`).
 - **Real hardware path is built** — `HostSerialDriver` speaks a binary frame
   protocol to a Pimoroni Servo2040, with per-servo calibration tables, a
   firmware-side slew limiter, watchdog, and auto-reconnect on the host.
@@ -151,8 +154,9 @@ config/hexapod.yaml             body geometry, mounts, servo channel map
 config/servos/<profile>.yaml    servo electrical/mechanical envelope
 config/calibration/<name>.yaml  per-servo measured angle→pulse tables
 firmware/servo2040/             C++ firmware for the Pimoroni Servo2040
-frontend/index.html             three.js client (CDN, no build step)
-server.py                       --device /dev/ttyACM0 for hardware mode
+frontend_v2/                    Svelte + Vite + three.js client (bun build)
+frontend/                       legacy v1 client (CDN, no build step)
+server.py                       WS + static HTTP + mDNS; --device for hardware
 main.py                         entry point for the matplotlib viz path
 scripts/hold_zero.py            hold every servo at calibrated centre
 tests/                          86 tests · pytest, no hardware required
@@ -444,31 +448,47 @@ uv sync
 uv run python main.py
 ```
 
-### Browser frontend, simulator
+### Browser frontend (v2), simulator
 ```bash
-# terminal 1 — simulation server
-uv run python server.py
+# one-time build of the Svelte frontend
+cd frontend_v2 && bun install && bun run build && cd ..
 
-# terminal 2 — static files (so the WS in the page can connect)
-python -m http.server -d frontend 8080
+# server — one process serves WebSocket, static frontend, and mDNS
+uv sync --extra mdns
+uv run python server.py
 ```
+
+Open <http://hexapod.local:8080/> from any device on the LAN. If mDNS isn't
+working, use the host's IP instead (`http://<host-ip>:8080/`). If only `frontend/`
+is present and `frontend_v2/dist/` isn't, the server falls back to v1 at the
+same URL.
 
 ### Browser frontend, real hardware
 ```bash
-# install the optional pyserial extra
-uv sync --extra hardware
-
-# server, pointed at the Servo2040
+uv sync --extra hardware --extra mdns
 uv run python server.py --device /dev/ttyACM0
-
-# static files in another terminal
-python -m http.server -d frontend 8080
 ```
 
-Open <http://127.0.0.1:8080/>. Press `W`/`A`/`S`/`D`/`Q`/`E` to drive, `Space`
-to stop. Drag the right-hand sliders to adjust geometry live. The
-**foot target** dropdown lets you pick a leg and command its foot directly
-via X/Y/Z sliders — handy for verifying IK or calibrating mechanical zeros.
+Press `W`/`A`/`S`/`D`/`Q`/`E` to drive, `Space` to stop, hold `` ` `` as a
+dead-man while using a gamepad. Drag the right-hand sliders to adjust
+geometry live. The **foot target** dropdown lets you pick a leg and command
+its foot directly via X/Y/Z sliders — handy for verifying IK or calibrating
+mechanical zeros. The HUD shows attitude, compass, minimap trail, speed
+sparklines, and battery.
+
+### Server options
+```bash
+uv run python server.py --help
+# --device /dev/ttyACM0   real hardware instead of simulator
+# --host 0.0.0.0          bind address (default 0.0.0.0, LAN-visible)
+# --port 8765             WebSocket port
+# --static-port 8080      HTTP port for the frontend
+# --static-dir <path>     override the served directory
+# --no-static             disable the built-in HTTP server
+# --mdns-name hexapod     reach the frontend at <name>.local
+# --no-mdns               disable mDNS advertisement
+# --no-camera             disable the MJPEG webcam stream
+```
 
 ### Tests
 
@@ -706,9 +726,14 @@ for toolchain install and build/flash instructions.
 - Contact sensor plumbed end to end (`SimDriver` synthesizes from foot z)
 - Early-touchdown reflex (terminate swing on contact, lock world position
   at the actual contact point — *not* the planned ground-level landing)
-- Matplotlib viz + three.js browser viz, both consumers of the same `Robot`
+- Matplotlib viz + Svelte/three.js browser viz, both consumers of the same `Robot`
 - WebSocket transport, JSON wire format = `RobotState.to_dict()`
-- Live UI: WSAD/QE control, sliders for height/step/radius, contact-coloured feet,
+- Built-in static HTTP server + mDNS advertisement — one `server.py` process
+  serves the WebSocket, the frontend bundle, and an optional MJPEG camera
+  stream; discoverable on the LAN at `hexapod.local:8080`
+- Live UI: WSAD/QE control, gamepad, touch joystick, drone-style HUD
+  (attitude, compass, minimap, sparklines, battery), orbit / chase / FPV
+  cameras, sliders for height/step/radius/lift/cycle, contact-coloured feet,
   support triangles, body trail
 - **Manual foot-target override** in the UI: pick a leg, drag X/Y/Z sliders,
   the gait yields control of that leg until you switch back to "off"
