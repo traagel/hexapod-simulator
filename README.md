@@ -1,5 +1,7 @@
 # inverse_kinematics_hexapod
 
+![Hexapod simulator UI](UI.png)
+
 Real-time hexapod simulator and control stack. Pure-Python core (kinematics,
 gait, pose), a clean public API, and a Svelte + three.js frontend talking to
 a Python WebSocket server. The hardware path drives a Pimoroni Servo2040 over USB
