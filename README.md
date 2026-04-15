@@ -219,12 +219,12 @@ sequenceDiagram
             R->>D: read_contacts()
             D-->>R: per-leg contact bits
             R->>G: tick(dt/cycle, contacts)
-            Note over G: advances phase;<br/>fires per-leg STANCE↔SWING edges
+            Note over G: advances phase<br/>fires per-leg stance/swing edges
             loop per leg
                 R->>G: sample(leg)
                 G-->>R: foot target in body frame
             end
-            Note over R: if commanded twist == 0<br/>AND gait.is_settled:<br/>mode = STANDING
+            Note over R: if commanded twist is 0<br/>AND gait.is_settled<br/>then mode becomes STANDING
         else mode == STANDING
             loop per leg
                 R->>G: sample(leg)
@@ -284,7 +284,7 @@ stateDiagram-v2
 
     note right of WALKING
         phase advances
-        per-leg STANCE↔SWING
+        per-leg stance/swing cycle
         body integration ON
     end note
 ```
@@ -302,23 +302,23 @@ keyed by phase but can be *forced* by ground contact.
 stateDiagram-v2
     [*] --> STANCE : begin_walk\n(world_lock = pose.transform(fk.solve(leg)))
 
-    STANCE --> SWING : prev_local >= 0.5 AND local < 0.5\n(latch swing_start_body, swing_target_body,\nlatched_delta = foot_delta at this instant)
+    STANCE --> SWING : prev_local >= 0.5 AND local < 0.5\nlatch swing_start_body, swing_target_body,\nlatched_delta = foot_delta at this instant
 
-    SWING --> STANCE : prev_local < 0.5 <= local\n(natural end — world_lock = pose.transform(swing_target_body))
-    SWING --> STANCE : contact sensor fires AND swing > 30%\n(reflex end — world_lock = pose.transform(current arc position))
+    SWING --> STANCE : prev_local < 0.5 <= local\nnatural end, world_lock = pose.transform(swing_target_body)
+    SWING --> STANCE : contact sensor fires AND swing > 30%\nreflex end, world_lock = pose.transform(current arc position)
 
     note right of SWING
         body-frame interpolation
         from swing_start_body
         to swing_target_body
-        with sin(πt) lift arc
+        with sin(pi * t) lift arc
     end note
 
     note right of STANCE
         world-locked
         foot_body = pose.inverse_transform(world_lock)
-        (re-projected every tick
-         so tilt stays planted)
+        re-projected every tick
+        so tilt stays planted
     end note
 ```
 
