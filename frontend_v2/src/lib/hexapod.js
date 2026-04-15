@@ -144,7 +144,15 @@ const trailGeom = new THREE.BufferGeometry();
 trailGeom.setAttribute("position", new THREE.BufferAttribute(new Float32Array(trailMax * 3), 3));
 export const trailLine = new THREE.Line(trailGeom, new THREE.LineBasicMaterial({ color: 0x66aaff }));
 scene.add(trailLine);
-let trailCount = 0;
+// Chronological deque (oldest at index 0). A circular buffer would draw a
+// stray line from the oldest to the newest sample once it wraps, because
+// THREE.Line connects vertices in array order. 600 points is small enough
+// that an array shift per frame is free.
+const trailPts = [];
+// Body teleports (set_body_pose) shouldn't be connected to the prior point;
+// we break the line by skipping a vertex when the jump exceeds this.
+const TRAIL_BREAK_DIST = 5.0;
+let lastTrailPt = null;
 
 export function applyState(state) {
   const pose = state.pose;
@@ -189,10 +197,26 @@ export function applyState(state) {
 
   updatePolygons(state);
 
+  // On a teleport, drop the deque so we don't draw a line from the old
+  // pose to the new one.
+  if (lastTrailPt) {
+    const jx = pose.x - lastTrailPt[0];
+    const jy = pose.y - lastTrailPt[1];
+    if (jx * jx + jy * jy > TRAIL_BREAK_DIST * TRAIL_BREAK_DIST) {
+      trailPts.length = 0;
+    }
+  }
+  trailPts.push([pose.x, pose.y]);
+  if (trailPts.length > trailMax) trailPts.shift();
+  lastTrailPt = trailPts[trailPts.length - 1];
+
   const tarr = trailGeom.attributes.position.array;
-  const idx = (trailCount % trailMax) * 3;
-  tarr[idx] = pose.x; tarr[idx + 1] = pose.y; tarr[idx + 2] = 0;
-  trailCount++;
+  for (let i = 0; i < trailPts.length; i++) {
+    const o = i * 3;
+    tarr[o]     = trailPts[i][0];
+    tarr[o + 1] = trailPts[i][1];
+    tarr[o + 2] = 0;
+  }
   trailGeom.attributes.position.needsUpdate = true;
-  trailGeom.setDrawRange(0, Math.min(trailCount, trailMax));
+  trailGeom.setDrawRange(0, trailPts.length);
 }
