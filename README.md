@@ -187,7 +187,7 @@ The split is enforced everywhere:
 - IK and FK operate **only** in the body frame. They never see the world pose.
 - The gait writes targets in body frame. Stance feet are kept world-stationary
   by re-deriving their body-frame coordinates each tick from a locked
-  `stance_world` point: `foot_body = pose.inverse_transform(stance_world)`.
+  `world_lock` point: `foot_body = pose.inverse_transform(world_lock)`.
 - Visualization is the **only** place that converts body → world for display.
 
 This is the property that lets the same core code drive both a sim *and* a
@@ -214,18 +214,31 @@ sequenceDiagram
 
     loop every dt seconds
         R->>R: apply pending commands
-        R->>R: advance phase OR snap to swing-start (kick)
-        R->>D: read_contacts()
-        D-->>R: per-leg contact bits
-        R->>G: targets(phase, contacts)
-        Note over G: state machine per leg<br/>(see next diagram)
-        G-->>R: foot targets in body frame
+        R->>R: evaluate mode transitions (STANDING→WALKING on nonzero twist, etc.)
+        alt mode == WALKING
+            R->>D: read_contacts()
+            D-->>R: per-leg contact bits
+            R->>G: tick(dt/cycle, contacts)
+            Note over G: advances phase;<br/>fires per-leg STANCE↔SWING edges
+            loop per leg
+                R->>G: sample(leg)
+                G-->>R: foot target in body frame
+            end
+            Note over R: if commanded twist == 0<br/>AND gait.is_settled:<br/>mode = STANDING
+        else mode == STANDING
+            loop per leg
+                R->>G: sample(leg)
+                G-->>R: world_lock re-projected to body frame
+            end
+        else mode in {ZERO_STANCE, TRANSITION}
+            R->>R: tap-dance or zero-FK targets
+        end
         loop per leg
             R->>IK: solve(leg, target)
             IK-->>R: (coxa, femur, tibia) angles
         end
         R->>D: write(joint commands)
-        alt gait.is_active
+        alt mode == WALKING
             R->>P: integrate(twist, dt)
         end
         R->>R: build RobotState
@@ -236,28 +249,63 @@ sequenceDiagram
 
 The two key decoupling points:
 
-- `read_contacts()` runs *before* `gait.targets`, so the gait can reflex on
+- `read_contacts()` runs *before* `gait.tick()`, so the gait can reflex on
   ground contact within the same tick.
-- `pose.integrate` runs **only** if `gait.is_active`. If no leg has latched a
-  non-zero plan, the body sits still — this is what stops the body from
-  sliding ahead of feet that haven't lifted yet.
+- `pose.integrate` runs **only** when `mode == WALKING`. Every other mode
+  holds the body still — this is what stops the body from sliding ahead of
+  feet that haven't lifted yet (and from drifting after a stop while legs
+  finish their last swings).
 
 ---
 
-## Per-leg gait state machine
+## State machines
 
-Each leg goes through swing → stance → swing repeatedly. The state is keyed
-by phase but can be *forced* by ground contact.
+The walking system is two explicit state machines, one nested inside the other.
+
+### Robot mode
 
 ```mermaid
 stateDiagram-v2
-    [*] --> STANCE_INIT
-    STANCE_INIT --> SWING : phase wraps through 0\n(latch new delta from current twist)
+    [*] --> ZERO_STANCE
 
-    SWING --> STANCE : phase reaches 0.5\n(natural swing-end\nlock world position)
-    SWING --> STANCE : contact sensor fires\nAND swing > 30%\n(early touchdown reflex\nlock world NOW)
+    ZERO_STANCE --> TRANSITION : set_zero_stance(False)
+    STANDING    --> TRANSITION : set_zero_stance(True)
+    TRANSITION  --> STANDING    : animation done\n(plant_all_from_fk)
+    TRANSITION  --> ZERO_STANCE : animation done
 
-    STANCE --> SWING : phase wraps through 0\n(clears reflex override)
+    STANDING --> WALKING : set_twist(nonzero)\ngait.begin_walk()
+    WALKING  --> STANDING : commanded twist == 0\nAND gait.is_settled
+
+    note right of STANDING
+        feet world-locked
+        phase frozen
+        body integration OFF
+    end note
+
+    note right of WALKING
+        phase advances
+        per-leg STANCE↔SWING
+        body integration ON
+    end note
+```
+
+`begin_walk()` snapshots every leg's actual FK position into `world_lock` —
+so the first STANCE→SWING transition reads truth, not a stale cache. This
+is what makes walk-start visually smooth.
+
+### Per-leg phase (inside WALKING)
+
+Each leg runs its own state machine as the gait phase cycles. The state is
+keyed by phase but can be *forced* by ground contact.
+
+```mermaid
+stateDiagram-v2
+    [*] --> STANCE : begin_walk\n(world_lock = pose.transform(fk.solve(leg)))
+
+    STANCE --> SWING : prev_local >= 0.5 AND local < 0.5\n(latch swing_start_body, swing_target_body,\nlatched_delta = foot_delta at this instant)
+
+    SWING --> STANCE : prev_local < 0.5 <= local\n(natural end — world_lock = pose.transform(swing_target_body))
+    SWING --> STANCE : contact sensor fires AND swing > 30%\n(reflex end — world_lock = pose.transform(current arc position))
 
     note right of SWING
         body-frame interpolation
@@ -268,22 +316,26 @@ stateDiagram-v2
 
     note right of STANCE
         world-locked
-        foot_body = pose.inverse_transform(
-          stance_world)
+        foot_body = pose.inverse_transform(world_lock)
+        (re-projected every tick
+         so tilt stays planted)
     end note
 ```
 
 Why this shape:
 
+- **Invariant: `phase == STANCE ⇒ world_lock is not None`.** There is no
+  fallback to "neutral" on missing lock — the source of the old walk-start
+  twitch — because the lock is always set explicitly on entering STANCE.
 - **Latching at swing-start** prevents teleports when twist changes mid-cycle.
-  A leg in swing finishes its planned arc; the *next* swing picks up the new
-  command.
-- **Locking the world position at swing-end** is the part that makes stance
-  feet stay planted as the body rolls over them — even if the user changes
-  speed during the stance.
-- **Reflex override** is a separate flag that lets contact sensors short-circuit
-  the swing→stance transition without confusing the natural phase tracking.
-  It's cleared on the next *real* phase-driven swing-start.
+  A leg in swing finishes its planned arc using the delta it latched; the
+  *next* swing-start picks up the new command.
+- **Locking the world position at swing-end** is what makes stance feet stay
+  planted as the body rolls over them — even if the user changes speed during
+  the stance.
+- **Reflex touchdown** locks at the foot's *current* arc position, not the
+  planned landing target, so the foot doesn't drag through the obstacle that
+  triggered the contact sensor.
 
 ---
 
@@ -328,16 +380,24 @@ gait    = TripodGait(hexapod, step_length=4, lift_height=3)
 robot   = Robot(hexapod, gait, SimDriver(hexapod), cycle_seconds=0.6)
 ```
 
-Commands (all buffered, applied at the start of the next `step`):
+Commands (buffered ones are applied at the start of the next `step`):
 ```python
 robot.set_twist(vx, vy, omega)        # body-frame velocity, units/sec, rad/sec
 robot.set_foot_target(leg_key, xyz)   # one-shot per-leg override
-robot.set_body_pose(x, y, yaw)        # teleport (bypasses dynamics)
-robot.set_body_height(z)              # body height above ground
+robot.set_body_pose(x, y, yaw)        # teleport (buffered; feet re-anchor at new pose)
+robot.set_body_height(z)              # body height above ground (feet stay planted)
+robot.set_body_orientation(roll, pitch)  # body tilt (feet stay world-planted)
 robot.set_step_length(L)              # soft cap on per-cycle translation
 robot.set_stance_radius(r)            # how far feet sit from coxa mounts
-robot.stop()                          # zero twist
+robot.set_lift_height(h)              # swing-arc lift height
+robot.set_cycle_time(seconds)         # duration of one full gait cycle
+robot.set_zero_stance(enabled)        # tap-dance to/from zero-FK rest pose
+robot.set_servos_enabled(enabled)     # toggle servo output (sim is unaffected)
+robot.stop()                          # zero twist; robot settles to STANDING
 ```
+
+Mode is exposed as `robot.mode` (a `RobotMode` enum). External code should
+treat it as read-only.
 
 Tick:
 ```python
@@ -637,11 +697,12 @@ for toolchain install and build/flash instructions.
 - Pure Python core (kinematics, gait, pose) with no I/O
 - Analytical IK with reachability clamp + safety net
 - Tibia bend support (rigid mechanical offset baked into FK and IK)
-- Tripod gait with world-locked stance + idle/stop handling
+- Tripod gait with world-locked stance and explicit per-leg state machine
+- Robot-level mode state machine (`ZERO_STANCE` / `TRANSITION` / `STANDING` /
+  `WALKING`) with FK-snapshot on walk-start (no teleport)
 - Workspace-aware default `neutral_radius` for asymmetric leg geometries
 - Body pose decoupled from feet (no slide bug)
 - Tunable cycle time, step length cap, body height, stance radius
-- Idle→active "kick" — instant response to twist commands
 - Contact sensor plumbed end to end (`SimDriver` synthesizes from foot z)
 - Early-touchdown reflex (terminate swing on contact, lock world position
   at the actual contact point — *not* the planned ground-level landing)
