@@ -12,7 +12,7 @@
   import { takeScreenshot } from "../lib/screenshot.js";
   import { startGyro, stopGyro } from "../lib/gyro.js";
   import { gamepadConnected } from "../lib/gamepad.js";
-  import { showMinimap, showSparklines, showTouchJoy } from "../lib/ui.js";
+  import { showMinimap, showSparklines, showServoGraphs, showTouchJoy } from "../lib/ui.js";
 
   const LEG_OPTIONS = [
     { value: "", label: "-- off --" },
@@ -288,6 +288,7 @@
     <label class="chk"><input type="checkbox" bind:checked={ov.polygons}/>polys</label>
     <label class="chk"><input type="checkbox" bind:checked={$showMinimap}/>minimap</label>
     <label class="chk"><input type="checkbox" bind:checked={$showSparklines}/>plots</label>
+    <label class="chk"><input type="checkbox" bind:checked={$showServoGraphs}/>servos</label>
   </div>
 
   <div class="section">input</div>

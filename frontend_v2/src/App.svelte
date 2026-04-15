@@ -9,10 +9,11 @@
   import EStop from "./components/EStop.svelte";
   import Minimap from "./components/Minimap.svelte";
   import Sparklines from "./components/Sparklines.svelte";
+  import ServoGraphs from "./components/ServoGraphs.svelte";
   import TouchControls from "./components/TouchControls.svelte";
   import { connect } from "./lib/ws.js";
   import { installInput } from "./lib/input.js";
-  import { showMinimap, showSparklines, showTouchJoy } from "./lib/ui.js";
+  import { showMinimap, showSparklines, showServoGraphs, showTouchJoy } from "./lib/ui.js";
   // Imported for the side effect of registering overlay subscriptions +
   // gamepad connect/disconnect listeners.
   import "./lib/overlays.js";
@@ -35,4 +36,5 @@
 
 {#if $showMinimap}<Minimap />{/if}
 {#if $showSparklines}<Sparklines />{/if}
+{#if $showServoGraphs}<ServoGraphs />{/if}
 {#if $showTouchJoy}<TouchControls />{/if}

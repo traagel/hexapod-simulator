@@ -17,6 +17,7 @@ function persisted(key, init) {
   return s;
 }
 
-export const showMinimap    = persisted("showMinimap", false);
-export const showSparklines = persisted("showSparklines", true);
-export const showTouchJoy   = persisted("showTouchJoy", false);
+export const showMinimap     = persisted("showMinimap", false);
+export const showSparklines  = persisted("showSparklines", true);
+export const showTouchJoy    = persisted("showTouchJoy", false);
+export const showServoGraphs = persisted("showServoGraphs", false);

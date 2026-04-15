@@ -9,8 +9,7 @@ frontend on an HTTP port and (optionally) advertises itself over mDNS.
     uv sync --extra hardware
     uv run python server.py --device /dev/ttyACM0
 
-The frontend is served from frontend_v2/dist if it exists, otherwise
-frontend/. Build the v2 frontend with:
+The frontend is served from frontend_v2/dist. Build it with:
 
     cd frontend_v2 && bun install && bun run build
 
@@ -44,14 +43,12 @@ def build_driver(device: str | None, hexapod: Hexapod):
 
 
 def resolve_static_dir(explicit: str | None) -> Path | None:
-    """Pick v2 dist if present, else v1, else None (disables static serving)."""
+    """Locate the built frontend bundle, or None to disable static serving."""
     if explicit:
         p = Path(explicit)
         return p if p.is_dir() else None
-    for candidate in (REPO / "frontend_v2" / "dist", REPO / "frontend"):
-        if candidate.is_dir():
-            return candidate
-    return None
+    candidate = REPO / "frontend_v2" / "dist"
+    return candidate if candidate.is_dir() else None
 
 
 def main() -> None:
@@ -70,8 +67,7 @@ def main() -> None:
     parser.add_argument("--static-port", type=int, default=8080,
                         help="HTTP port for the frontend (default: 8080).")
     parser.add_argument("--static-dir", default=None,
-                        help="Directory to serve. Defaults to frontend_v2/dist "
-                             "or frontend/, whichever exists.")
+                        help="Directory to serve. Defaults to frontend_v2/dist.")
     parser.add_argument("--no-static", action="store_true",
                         help="Disable the built-in static file server.")
     parser.add_argument("--mdns-name", default="hexapod",
@@ -118,9 +114,9 @@ def main() -> None:
     if not args.no_static:
         static_dir = resolve_static_dir(args.static_dir)
         if static_dir is None:
-            print("static: no frontend directory found "
-                  "(looked for frontend_v2/dist and frontend/); "
-                  "pass --static-dir or --no-static to silence this.")
+            print("static: frontend_v2/dist not found — "
+                  "build it with `cd frontend_v2 && bun run build`, "
+                  "or pass --static-dir / --no-static to silence this.")
         else:
             static = StaticServer(static_dir, host=args.host, port=args.static_port)
             static.start()

@@ -157,7 +157,6 @@ config/servos/<profile>.yaml    servo electrical/mechanical envelope
 config/calibration/<name>.yaml  per-servo measured angle→pulse tables
 firmware/servo2040/             C++ firmware for the Pimoroni Servo2040
 frontend_v2/                    Svelte + Vite + three.js client (bun build)
-frontend/                       legacy v1 client (CDN, no build step)
 server.py                       WS + static HTTP + mDNS; --device for hardware
 main.py                         entry point for the matplotlib viz path
 scripts/hold_zero.py            hold every servo at calibrated centre
@@ -461,9 +460,7 @@ uv run python server.py
 ```
 
 Open <http://hexapod.local:8080/> from any device on the LAN. If mDNS isn't
-working, use the host's IP instead (`http://<host-ip>:8080/`). If only `frontend/`
-is present and `frontend_v2/dist/` isn't, the server falls back to v1 at the
-same URL.
+working, use the host's IP instead (`http://<host-ip>:8080/`).
 
 ### Browser frontend, real hardware
 ```bash
