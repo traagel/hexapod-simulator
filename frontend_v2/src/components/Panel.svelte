@@ -175,6 +175,24 @@
 
   function snap(v) { return Math.round(v * 2) / 2; }
 
+  // Foot and joint override target the same leg differently — joint wins
+  // silently (it bypasses IK). Enforce mutual exclusion at the UI layer
+  // so picking a leg in one dropdown releases it from the other.
+  let _lastTargetLeg = "";
+  let _lastJointLeg = "";
+  $effect(() => {
+    if (targetLeg !== _lastTargetLeg) {
+      if (targetLeg && targetLeg === jointLeg) jointLeg = "";
+      _lastTargetLeg = targetLeg;
+    }
+  });
+  $effect(() => {
+    if (jointLeg !== _lastJointLeg) {
+      if (jointLeg && jointLeg === targetLeg) targetLeg = "";
+      _lastJointLeg = jointLeg;
+    }
+  });
+
   // Joint override: capture current angles when a leg is selected, then
   // push any slider change. Picking "off" clears the override on the server.
   function pushJointOverride() {

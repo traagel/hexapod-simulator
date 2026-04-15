@@ -128,15 +128,24 @@ class Robot:
         self._pending_twist = TwistDTO(0.0, 0.0, 0.0)
 
     def set_foot_target(self, leg: LegKey, xyz: tuple[float, float, float]) -> None:
-        """Override a single foot target for the next tick (body frame)."""
+        """Override a single foot target for the next tick (body frame).
+
+        Drops any active joint override on the same leg — the two mechanisms
+        target the same servos and joint override would otherwise win
+        silently because it bypasses IK.
+        """
         self._pending_foot_targets[leg] = xyz
+        if self._joint_overrides.pop(leg, None) is not None:
+            self.gait.relock_stance_from_fk()
 
     def set_joint_override(
         self, leg: LegKey, coxa: float, femur: float, tibia: float,
     ) -> None:
         """Lock a leg's joint angles (radians). IK is bypassed for this leg
-        until cleared. Use to manually pose a single leg from the UI."""
+        until cleared. Drops any pending foot-target override for the same
+        leg so the two never fight."""
         self._joint_overrides[leg] = (float(coxa), float(femur), float(tibia))
+        self._pending_foot_targets.pop(leg, None)
 
     def clear_joint_override(self, leg: LegKey | None = None) -> None:
         """Release one leg (or all legs) back to gait control. Re-anchors
