@@ -1,5 +1,6 @@
 """Run the hexapod as a websocket server backed by either the in-memory
-simulator or a real Servo2040 over USB serial.
+simulator or a real Servo2040 over USB serial. Also serves the built
+frontend on an HTTP port and (optionally) advertises itself over mDNS.
 
     # simulator (default)
     uv run python server.py
@@ -8,17 +9,26 @@ simulator or a real Servo2040 over USB serial.
     uv sync --extra hardware
     uv run python server.py --device /dev/ttyACM0
 
-Then open frontend/index.html in your browser.
+The frontend is served from frontend_v2/dist if it exists, otherwise
+frontend/. Build the v2 frontend with:
+
+    cd frontend_v2 && bun install && bun run build
+
+Then open http://hexapod.local:8080/ (or http://<host-ip>:8080/).
 """
 
 import argparse
+from pathlib import Path
 
 from hexapod import Hexapod, Robot
 from hexapod.core.gait import TripodGait
 from hexapod.drivers import SimDriver
 from hexapod.transports import WebSocketServer
+from hexapod.transports.mdns import advertise
+from hexapod.transports.static import StaticServer
 
 CONFIG = "config/hexapod.yaml"
+REPO = Path(__file__).resolve().parent
 
 
 def build_driver(device: str | None, hexapod: Hexapod):
@@ -33,6 +43,17 @@ def build_driver(device: str | None, hexapod: Hexapod):
     return HostSerialDriver(servo_map, device=device)
 
 
+def resolve_static_dir(explicit: str | None) -> Path | None:
+    """Pick v2 dist if present, else v1, else None (disables static serving)."""
+    if explicit:
+        p = Path(explicit)
+        return p if p.is_dir() else None
+    for candidate in (REPO / "frontend_v2" / "dist", REPO / "frontend"):
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -42,8 +63,21 @@ def main() -> None:
         "Omit for the in-memory simulator.",
     )
     parser.add_argument("--baudrate", type=int, default=115200)
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--host", default="0.0.0.0",
+                        help="Bind address for WS and static HTTP (default: 0.0.0.0).")
+    parser.add_argument("--port", type=int, default=8765,
+                        help="WebSocket port (default: 8765).")
+    parser.add_argument("--static-port", type=int, default=8080,
+                        help="HTTP port for the frontend (default: 8080).")
+    parser.add_argument("--static-dir", default=None,
+                        help="Directory to serve. Defaults to frontend_v2/dist "
+                             "or frontend/, whichever exists.")
+    parser.add_argument("--no-static", action="store_true",
+                        help="Disable the built-in static file server.")
+    parser.add_argument("--mdns-name", default="hexapod",
+                        help="mDNS name; reach the frontend at <name>.local.")
+    parser.add_argument("--no-mdns", action="store_true",
+                        help="Disable mDNS advertisement.")
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--camera-port", type=int, default=8766)
     parser.add_argument("--camera-device", default=0,
@@ -79,6 +113,25 @@ def main() -> None:
         except ImportError:
             pass
 
+    # Static files.
+    static = None
+    if not args.no_static:
+        static_dir = resolve_static_dir(args.static_dir)
+        if static_dir is None:
+            print("static: no frontend directory found "
+                  "(looked for frontend_v2/dist and frontend/); "
+                  "pass --static-dir or --no-static to silence this.")
+        else:
+            static = StaticServer(static_dir, host=args.host, port=args.static_port)
+            static.start()
+            print(f"static: http://{args.host}:{args.static_port}/ -> {static_dir}")
+
+    # mDNS.
+    mdns = None
+    if not args.no_mdns and static is not None:
+        mdns = advertise(args.mdns_name, args.static_port)
+        print(f"mdns: http://{args.mdns_name}.local:{args.static_port}/")
+
     backend = "sim" if args.device is None else f"hardware ({args.device})"
     print(f"hexapod server: {backend} on ws://{args.host}:{args.port}")
 
@@ -89,6 +142,10 @@ def main() -> None:
         server.run()
     finally:
         driver.close()
+        if static is not None:
+            static.stop()
+        if mdns is not None:
+            mdns.close()
 
 
 if __name__ == "__main__":

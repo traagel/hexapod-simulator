@@ -31,6 +31,9 @@ gui = [
 camera = [
     "opencv-python-headless>=4.8",
 ]
+mdns = [
+    "zeroconf>=0.140",
+]
 
 [dependency-groups]
 dev = [
