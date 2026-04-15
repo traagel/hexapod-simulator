@@ -47,6 +47,13 @@
   let ty = $state(12);
   let tz = $state(0);
 
+  // Joint override (manual servo posing).
+  let jointLeg = $state("");
+  let jc = $state(0);  // coxa angle, degrees
+  let jf = $state(0);  // femur angle, degrees
+  let jt = $state(0);  // tibia angle, degrees
+  const D2R = Math.PI / 180;
+
   // Hardware state.
   let servosOn = $state(false);
   let zeroOn = $state(false);
@@ -167,6 +174,45 @@
   });
 
   function snap(v) { return Math.round(v * 2) / 2; }
+
+  // Joint override: capture current angles when a leg is selected, then
+  // push any slider change. Picking "off" clears the override on the server.
+  function pushJointOverride() {
+    if (!jointLeg) return;
+    send({
+      type: "set_joint_override",
+      leg: jointLeg,
+      coxa:  jc * D2R,
+      femur: jf * D2R,
+      tibia: jt * D2R,
+    });
+  }
+  $effect(() => {
+    if (!jointLeg) return;
+    // Seed sliders from the leg's current angles when a leg is picked.
+    const leg = $latestState?.legs?.[jointLeg];
+    if (leg?.angles) {
+      jc = Math.round((leg.angles.coxa  || 0) * 180 / Math.PI);
+      jf = Math.round((leg.angles.femur || 0) * 180 / Math.PI);
+      jt = Math.round((leg.angles.tibia || 0) * 180 / Math.PI);
+    }
+    pushJointOverride();
+  });
+  // Re-push whenever any of the three sliders change.
+  $effect(() => {
+    if (jointLeg) {
+      jc; jf; jt;  // dependency tracking
+      pushJointOverride();
+    }
+  });
+  // When jointLeg is reset to "", tell the server to release.
+  let prevJointLeg = "";
+  $effect(() => {
+    if (prevJointLeg && !jointLeg) {
+      send({ type: "clear_joint_override", leg: prevJointLeg });
+    }
+    prevJointLeg = jointLeg;
+  });
   function clampRange(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
   let contacts = $derived($latestState?.legs || {});
@@ -248,6 +294,27 @@
   <label>z</label>
   <input type="range" min="-10" max="20" step="0.5" bind:value={tz} />
   <span class="v">{tz}</span>
+
+  <div class="section">joint override</div>
+  <label>leg</label>
+  <select bind:value={jointLeg} class="leg-select">
+    {#each LEG_OPTIONS as o}
+      <option value={o.value}>{o.label}</option>
+    {/each}
+  </select>
+  <span></span>
+
+  <label>coxa</label>
+  <input type="range" min="-135" max="135" step="1" bind:value={jc} disabled={!jointLeg} />
+  <span class="v">{jc}&deg;</span>
+
+  <label>femur</label>
+  <input type="range" min="-135" max="135" step="1" bind:value={jf} disabled={!jointLeg} />
+  <span class="v">{jf}&deg;</span>
+
+  <label>tibia</label>
+  <input type="range" min="-135" max="135" step="1" bind:value={jt} disabled={!jointLeg} />
+  <span class="v">{jt}&deg;</span>
 
   <div class="section">hardware</div>
   <div class="btn-row">

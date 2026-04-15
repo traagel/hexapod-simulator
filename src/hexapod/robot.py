@@ -91,6 +91,10 @@ class Robot:
         self._pending_twist: TwistDTO | None = None
         self._pending_foot_targets: dict[LegKey, tuple[float, float, float]] = {}
         self._pending_pose: PoseDTO | None = None
+        # Sticky per-leg joint-angle overrides. While a leg has an entry,
+        # IK is skipped for that leg and the stored angles are written
+        # straight to the driver. Cleared via clear_joint_override().
+        self._joint_overrides: dict[LegKey, tuple[float, float, float]] = {}
 
         self._servos_enabled = False
         self._low_power = False
@@ -126,6 +130,24 @@ class Robot:
     def set_foot_target(self, leg: LegKey, xyz: tuple[float, float, float]) -> None:
         """Override a single foot target for the next tick (body frame)."""
         self._pending_foot_targets[leg] = xyz
+
+    def set_joint_override(
+        self, leg: LegKey, coxa: float, femur: float, tibia: float,
+    ) -> None:
+        """Lock a leg's joint angles (radians). IK is bypassed for this leg
+        until cleared. Use to manually pose a single leg from the UI."""
+        self._joint_overrides[leg] = (float(coxa), float(femur), float(tibia))
+
+    def clear_joint_override(self, leg: LegKey | None = None) -> None:
+        """Release one leg (or all legs) back to gait control. Re-anchors
+        any planted legs at their current FK position so the gait doesn't
+        try to snap them back to a stale world_lock on the next tick.
+        """
+        if leg is None:
+            self._joint_overrides.clear()
+        else:
+            self._joint_overrides.pop(leg, None)
+        self.gait.relock_stance_from_fk()
 
     def set_body_pose(self, x: float, y: float, yaw: float) -> None:
         """Teleport the body pose. Applied at the start of next step()."""
@@ -345,12 +367,16 @@ class Robot:
         commands: dict[LegKey, JointAngles] = {}
         for key, target in targets.items():
             leg = self.hexapod.legs.get(*key)
-            try:
-                c, f, ti = ik.solve(leg, target)
-            except (ValueError, ZeroDivisionError):
-                c = leg.coxa.angle.rad
-                f = leg.femur.angle.rad
-                ti = leg.tibia.angle.rad
+            override = self._joint_overrides.get(key)
+            if override is not None:
+                c, f, ti = override
+            else:
+                try:
+                    c, f, ti = ik.solve(leg, target)
+                except (ValueError, ZeroDivisionError):
+                    c = leg.coxa.angle.rad
+                    f = leg.femur.angle.rad
+                    ti = leg.tibia.angle.rad
             commands[key] = JointAngles(coxa=c, femur=f, tibia=ti)
             leg.coxa.angle.rad = c
             leg.femur.angle.rad = f

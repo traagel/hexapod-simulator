@@ -12,6 +12,9 @@ Server protocol:
                       {"type": "set_servos", "enabled": bool}
                       {"type": "zero_stance"}
                       {"type": "set_foot_target", "leg", "x", "y", "z"}
+                      {"type": "set_joint_override",
+                          "leg", "coxa", "femur", "tibia"}   # angles in radians
+                      {"type": "clear_joint_override", "leg"}  # leg optional
                           leg ∈ {front_left, front_right, mid_left, mid_right,
                                  rear_left, rear_right}
 
@@ -133,6 +136,24 @@ class WebSocketServer:
                         float(msg.get("z", 0.0)),
                     ),
                 )
+        elif kind == "set_joint_override":
+            leg_name = msg.get("leg")
+            leg = _LEG_KEYS.get(leg_name) if isinstance(leg_name, str) else None
+            if leg is not None:
+                self.robot.set_joint_override(
+                    leg,
+                    float(msg.get("coxa", 0.0)),
+                    float(msg.get("femur", 0.0)),
+                    float(msg.get("tibia", 0.0)),
+                )
+        elif kind == "clear_joint_override":
+            leg_name = msg.get("leg")
+            if leg_name is None:
+                self.robot.clear_joint_override()
+            else:
+                leg = _LEG_KEYS.get(leg_name) if isinstance(leg_name, str) else None
+                if leg is not None:
+                    self.robot.clear_joint_override(leg)
 
     async def _broadcast_loop(self) -> None:
         dt = 1.0 / self.fps
