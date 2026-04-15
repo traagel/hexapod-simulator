@@ -175,26 +175,10 @@
 
   function snap(v) { return Math.round(v * 2) / 2; }
 
-  // Foot and joint override target the same leg differently — joint wins
-  // silently (it bypasses IK). Enforce mutual exclusion at the UI layer
-  // so picking a leg in one dropdown releases it from the other.
-  let _lastTargetLeg = "";
-  let _lastJointLeg = "";
-  $effect(() => {
-    if (targetLeg !== _lastTargetLeg) {
-      if (targetLeg && targetLeg === jointLeg) jointLeg = "";
-      _lastTargetLeg = targetLeg;
-    }
-  });
-  $effect(() => {
-    if (jointLeg !== _lastJointLeg) {
-      if (jointLeg && jointLeg === targetLeg) targetLeg = "";
-      _lastJointLeg = jointLeg;
-    }
-  });
-
-  // Joint override: capture current angles when a leg is selected, then
-  // push any slider change. Picking "off" clears the override on the server.
+  // Joint override is event-driven (not effect-driven), because effects
+  // re-fire on every $latestState update — that re-pushed the override
+  // continuously and made the "off" transition flaky. Explicit dropdown
+  // and slider handlers send exactly one message per user action.
   function pushJointOverride() {
     if (!jointLeg) return;
     send({
@@ -205,32 +189,37 @@
       tibia: jt * D2R,
     });
   }
-  $effect(() => {
-    if (!jointLeg) return;
-    // Seed sliders from the leg's current angles when a leg is picked.
-    const leg = $latestState?.legs?.[jointLeg];
+  function selectJointLeg(value) {
+    const prev = jointLeg;
+    jointLeg = value;
+    if (prev && prev !== value) {
+      send({ type: "clear_joint_override", leg: prev });
+    }
+    if (!value) return;
+    // Mutual exclusion with foot override (same servos, joint wins
+    // silently because it bypasses IK).
+    if (targetLeg === value) selectTargetLeg("");
+    // Seed sliders from the leg's current FK angles, then push once.
+    const leg = $latestState?.legs?.[value];
     if (leg?.angles) {
       jc = Math.round((leg.angles.coxa  || 0) * 180 / Math.PI);
       jf = Math.round((leg.angles.femur || 0) * 180 / Math.PI);
       jt = Math.round((leg.angles.tibia || 0) * 180 / Math.PI);
     }
     pushJointOverride();
-  });
-  // Re-push whenever any of the three sliders change.
-  $effect(() => {
-    if (jointLeg) {
-      jc; jf; jt;  // dependency tracking
-      pushJointOverride();
+  }
+  function selectTargetLeg(value) {
+    const prev = targetLeg;
+    targetLeg = value;
+    // Mutual exclusion: foot override on the same leg releases joint override.
+    if (value && jointLeg === value) selectJointLeg("");
+    // The existing $effect below handles foot-target seeding/timer based
+    // on targetLeg; we just changed the value so it'll fire normally.
+    if (!value && prev) {
+      // Foot target is per-tick on the backend (drained each step), so
+      // no explicit "clear" message — just stopping pushes is enough.
     }
-  });
-  // When jointLeg is reset to "", tell the server to release.
-  let prevJointLeg = "";
-  $effect(() => {
-    if (prevJointLeg && !jointLeg) {
-      send({ type: "clear_joint_override", leg: prevJointLeg });
-    }
-    prevJointLeg = jointLeg;
-  });
+  }
   function clampRange(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
   let contacts = $derived($latestState?.legs || {});
@@ -294,7 +283,7 @@
 
   <div class="section">foot override</div>
   <label>leg</label>
-  <select bind:value={targetLeg} class="leg-select">
+  <select value={targetLeg} onchange={(e) => selectTargetLeg(e.currentTarget.value)} class="leg-select">
     {#each LEG_OPTIONS as o}
       <option value={o.value}>{o.label}</option>
     {/each}
@@ -315,7 +304,7 @@
 
   <div class="section">joint override</div>
   <label>leg</label>
-  <select bind:value={jointLeg} class="leg-select">
+  <select value={jointLeg} onchange={(e) => selectJointLeg(e.currentTarget.value)} class="leg-select">
     {#each LEG_OPTIONS as o}
       <option value={o.value}>{o.label}</option>
     {/each}
@@ -323,15 +312,18 @@
   <span></span>
 
   <label>coxa</label>
-  <input type="range" min="-135" max="135" step="1" bind:value={jc} disabled={!jointLeg} />
+  <input type="range" min="-135" max="135" step="1" bind:value={jc}
+         oninput={pushJointOverride} disabled={!jointLeg} />
   <span class="v">{jc}&deg;</span>
 
   <label>femur</label>
-  <input type="range" min="-135" max="135" step="1" bind:value={jf} disabled={!jointLeg} />
+  <input type="range" min="-135" max="135" step="1" bind:value={jf}
+         oninput={pushJointOverride} disabled={!jointLeg} />
   <span class="v">{jf}&deg;</span>
 
   <label>tibia</label>
-  <input type="range" min="-135" max="135" step="1" bind:value={jt} disabled={!jointLeg} />
+  <input type="range" min="-135" max="135" step="1" bind:value={jt}
+         oninput={pushJointOverride} disabled={!jointLeg} />
   <span class="v">{jt}&deg;</span>
 
   <div class="section">hardware</div>
