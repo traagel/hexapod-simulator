@@ -95,6 +95,38 @@ def test_unreachable_foot_target_does_not_crash(robot: Robot):
     assert all(math.isfinite(x) for x in after)
 
 
+def test_joint_override_clamps_to_servo_limit(robot: Robot):
+    """Manual override is the most likely path to drive a real servo past
+    its mechanical stop. set_joint_override must clamp before storing."""
+    from hexapod.robot import SERVO_LIMIT_RAD
+
+    leg_key = (Segment.FRONT, Side.LEFT)
+    leg = robot.hexapod.legs.get(*leg_key)
+    # Way past the ±135° hard stop, both directions.
+    robot.set_joint_override(leg_key, 5.0, -7.0, 99.9)
+    robot.step(0.02)
+    assert leg.coxa.angle.rad == pytest.approx(SERVO_LIMIT_RAD, abs=1e-9)
+    assert leg.femur.angle.rad == pytest.approx(-SERVO_LIMIT_RAD, abs=1e-9)
+    assert leg.tibia.angle.rad == pytest.approx(SERVO_LIMIT_RAD, abs=1e-9)
+
+
+def test_ik_output_clamps_at_driver_boundary(robot: Robot):
+    """Even with no manual override, IK can produce angles outside the
+    servo range for awkward foot targets. The driver-boundary clamp must
+    catch them so FK reflects the achievable pose."""
+    from hexapod.robot import SERVO_LIMIT_RAD
+
+    leg_key = (Segment.FRONT, Side.LEFT)
+    leg = robot.hexapod.legs.get(*leg_key)
+    # Target directly behind the body — coxa swings ~180° from rest, well
+    # past the ±135° limit for a front-left leg whose rest direction is
+    # forward-and-out.
+    robot.set_foot_target(leg_key, (-25.0, -25.0, 0.0))
+    robot.step(0.02)
+    for ang in (leg.coxa.angle.rad, leg.femur.angle.rad, leg.tibia.angle.rad):
+        assert -SERVO_LIMIT_RAD - 1e-9 <= ang <= SERVO_LIMIT_RAD + 1e-9
+
+
 def test_state_dto_round_trips_through_json_format(robot: Robot):
     from hexapod.api.dto import RobotState
 

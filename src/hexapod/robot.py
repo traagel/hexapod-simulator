@@ -40,6 +40,17 @@ _KEY_NAMES: dict[LegKey, str] = {
     (Segment.REAR, Side.RIGHT): "rear_right",
 }
 
+# Conservative joint-angle clamp applied at the driver boundary. Matches the
+# DS3235SSG and similar 270° servos in the reference hardware build. The
+# servo profile (config/servos/*.yaml) does its own pulse clamping for
+# electrical safety; this clamp keeps the in-memory leg state aligned with
+# what the servo can physically reach so FK doesn't lie about pose.
+SERVO_LIMIT_RAD = math.radians(135.0)
+
+
+def _clamp_joint(rad: float) -> float:
+    return max(-SERVO_LIMIT_RAD, min(SERVO_LIMIT_RAD, rad))
+
 
 class RobotMode(Enum):
     ZERO_STANCE = "zero_stance"
@@ -142,9 +153,15 @@ class Robot:
         self, leg: LegKey, coxa: float, femur: float, tibia: float,
     ) -> None:
         """Lock a leg's joint angles (radians). IK is bypassed for this leg
-        until cleared. Drops any pending foot-target override for the same
-        leg so the two never fight."""
-        self._joint_overrides[leg] = (float(coxa), float(femur), float(tibia))
+        until cleared. Angles are clamped to ±SERVO_LIMIT_RAD so the manual
+        override UI can't drive a servo past its mechanical stop. Drops any
+        pending foot-target override for the same leg so the two never fight.
+        """
+        self._joint_overrides[leg] = (
+            _clamp_joint(float(coxa)),
+            _clamp_joint(float(femur)),
+            _clamp_joint(float(tibia)),
+        )
         self._pending_foot_targets.pop(leg, None)
 
     def clear_joint_override(self, leg: LegKey | None = None) -> None:
@@ -386,6 +403,12 @@ class Robot:
                     c = leg.coxa.angle.rad
                     f = leg.femur.angle.rad
                     ti = leg.tibia.angle.rad
+            # Final hardware-safety clamp. IK can produce angles outside the
+            # servo range for awkward foot targets (e.g. coxa rotation behind
+            # the body); the override path is pre-clamped but we re-apply
+            # here for defense-in-depth. Mutating leg.*.angle.rad to the
+            # clamped value keeps FK honest about where the leg actually is.
+            c, f, ti = _clamp_joint(c), _clamp_joint(f), _clamp_joint(ti)
             commands[key] = JointAngles(coxa=c, femur=f, tibia=ti)
             leg.coxa.angle.rad = c
             leg.femur.angle.rad = f
