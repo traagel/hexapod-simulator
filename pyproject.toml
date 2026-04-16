@@ -24,9 +24,10 @@ extraPaths = ["src"]
 hardware = [
     "pyserial>=3.5",
 ]
-gui = [
+# Matplotlib viewer — desktop only (needs a GUI backend). For Pi / headless
+# use the web frontend (server.py) instead.
+viz = [
     "matplotlib>=3.10.8",
-    "pyqt6>=6.11.0",
 ]
 camera = [
     "opencv-python-headless>=4.8",
